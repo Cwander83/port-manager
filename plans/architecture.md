@@ -43,13 +43,14 @@
 
 ## 6. Hosting & Cloud Infrastructure
 - **Provider**: none. Distribution via GitHub Releases + Homebrew cask
-- **IaC**: none. Release = `make release` producing signed + notarized `.dmg`
+- **IaC**: none. Release: Phase 3 adds `make release` (signed + notarized `.dmg`) — not yet present; today `swift run PortManager`
 - **Edge & DNS**: N/A
 
 ## 7. Security & Compliance
 - **AuthN/AuthZ**: N/A (local app). Note: no elevated privileges needed — user owns their own processes
 - **Secrets**: none stored
 - **Network & perimeter**: app makes only local calls (lsof subprocess, docker CLI, localhost Ollama API). Hardened Runtime + notarization required for Gatekeeper pass
+- **Exec contract (law, mirrors `Sources/Core/PortScanner.swift` doc)**: subprocess calls use absolute paths only (`/usr/sbin/lsof`, `/opt/homebrew/bin/docker` or `/usr/local/bin/docker`); argv arrays only, never `/bin/sh -c`, no PATH lookup; validate `pid_t > 0` and process ownership (current user) before `kill(2)`; container IDs validated against `^[0-9a-f]{12,64}$`; prefer `kill(2)` over `killall`/`pkill`
 - **Compliance**: none — zero data collection
 
 ## 8. Codebase & Developer Experience (DX)
@@ -63,7 +64,7 @@
     PortManagerTests/
   scripts/              — release build + notarize (added at Phase 3)
   ```
-- **Toolchain**: SPM, `swift build/test`, Makefile wrappers (matches existing repos)
+- **Toolchain**: SPM, `swift build/test`. Makefile wrappers land in Phase 3
 - **Formatting & linting**: swift-format + SwiftLint (match portfolio convention)
 
 ## 9. CI/CD & Delivery
