@@ -18,6 +18,17 @@ public enum CommandRunnerError: Error, Equatable {
     case timeout
 }
 
+extension CommandRunnerError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .relativePath(let path):
+            return "Executable path must be absolute: \(path)."
+        case .timeout:
+            return "Command timed out."
+        }
+    }
+}
+
 /// Spawns an executable using an absolute path and an argv array.
 /// Never invokes a shell and never performs PATH lookup.
 ///
@@ -136,17 +147,22 @@ private final class PipeAccumulator: @unchecked Sendable {
 private final class TerminationStatusBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _exitCode: Int32 = 0
-    private(set) var didTerminate: Bool = false
+    private var _didTerminate: Bool = false
 
     var exitCode: Int32 {
         lock.lock(); defer { lock.unlock() }
         return _exitCode
     }
 
+    var didTerminate: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _didTerminate
+    }
+
     func set(_ code: Int32) {
         lock.lock()
         _exitCode = code
-        didTerminate = true
+        _didTerminate = true
         lock.unlock()
     }
 }

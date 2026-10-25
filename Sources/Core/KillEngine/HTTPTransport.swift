@@ -5,13 +5,23 @@ public enum HTTPTransportError: Error, Equatable {
     case noResponse
 }
 
+extension HTTPTransportError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .timeout:
+            return "HTTP request timed out."
+        case .noResponse:
+            return "HTTP request returned no response."
+        }
+    }
+}
+
 /// Synchronous HTTP transport used by the Ollama rule and kill execution.
 /// Real implementation bridges `URLSession` into the sync rule/execute APIs.
 ///
-/// This protocol is not `Sendable` by design: it models a synchronous
-/// data task. The concrete implementations are structs that create a fresh
-/// `URLSession` per call and hold no shared mutable state, so they are safe to
-/// capture across isolation boundaries.
+/// The protocol is `Sendable`; concrete implementations are structs that create
+/// a fresh `URLSession` per call and hold no shared mutable state, so they are
+/// safe to capture across isolation boundaries.
 public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) throws -> (Data, URLResponse)
 }

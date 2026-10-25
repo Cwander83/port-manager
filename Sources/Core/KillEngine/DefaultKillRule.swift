@@ -27,7 +27,7 @@ struct DefaultKillRule: KillRule {
         // changed before returning the action. A nil snapshot (e.g. from a mock
         // scanner) skips this check — documented in tests.
         if let snapshot = item.processStartTime {
-            guard identity.startTime == snapshot else {
+            guard sameStart(identity.startTime, snapshot) else {
                 throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: item.pid))
             }
         }

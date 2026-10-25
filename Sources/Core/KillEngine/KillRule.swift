@@ -34,8 +34,7 @@ public enum KillAction: Sendable, Equatable {
         model: String,
         commandDescription: String,
         url: URL,
-        method: String,
-        body: Data
+        method: String
     )
 }
 
@@ -60,7 +59,7 @@ public enum ValidationFailureReason: Equatable, Sendable {
     case dockerProcessMismatch(pid: pid_t)
     case unmappedBrewProcess(processName: String)
     case ambiguousBrewService
-    case brewListUnavailable
+    case invalidOllamaURL
     case ollamaModelNotLoaded(port: Int)
     case ambiguousModel
     case modelNotResolvable

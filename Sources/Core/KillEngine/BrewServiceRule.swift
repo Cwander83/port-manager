@@ -19,7 +19,7 @@ struct BrewServiceRule: KillRule {
     }
 
     func canHandle(_ item: PortItem) -> Bool {
-        item.kind == .brew
+        item.kind == .brew || BrewServiceNameMapping.isKnown(item.processName)
     }
 
     func makeAction(_ item: PortItem) async throws -> KillAction {
@@ -143,6 +143,16 @@ public enum BrewServiceNameMapping {
     ]
 
     public static func prefix(for processName: String) -> String {
-        table[processName] ?? processName
+        if let exact = table[processName] {
+            return exact
+        }
+        if let truncated = table.first(where: { $0.key.hasPrefix(processName) }) {
+            return truncated.value
+        }
+        return processName
+    }
+
+    public static func isKnown(_ processName: String) -> Bool {
+        table[processName] != nil || table.keys.contains(where: { $0.hasPrefix(processName) })
     }
 }

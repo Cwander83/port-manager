@@ -42,6 +42,11 @@ public struct KillEngine: Sendable {
 
     /// Executes a validated action.
     ///
+    /// `commandRunner` must be the same `CommandRunner` instance that produced
+    /// the action (e.g. the one passed to `KillEngine` init or used to resolve
+    /// the rule). Passing a different runner is a programming error and may
+    /// bypass stubbing/mocks.
+    ///
     /// `escalate` opts in to SIGKILL after a short SIGTERM grace period.
     public func execute(
         _ action: KillAction,
@@ -58,7 +63,7 @@ public struct KillEngine: Sendable {
         case .brewStop(let serviceName, _, let executable):
             try await executeBrewStop(serviceName: serviceName, executable: executable, using: commandRunner)
 
-        case .ollamaUnload(let model, _, let url, let method, _):
+        case .ollamaUnload(let model, _, let url, let method):
             try await executeOllamaUnload(model: model, url: url, method: method)
         }
     }
@@ -108,7 +113,7 @@ public struct KillEngine: Sendable {
               let host = url.host, host == "127.0.0.1",
               let port = url.port, port == 11434,
               url.path == "/api/generate" else {
-            throw KillEngineError.validationFailure(reason: .invalidServiceName("ollama URL"))
+            throw KillEngineError.validationFailure(reason: .invalidOllamaURL)
         }
 
         let body = try JSONSerialization.data(withJSONObject: ["model": model, "keep_alive": 0])
@@ -145,7 +150,7 @@ public struct KillEngine: Sendable {
         }
 
         if let capturedStartTime = capturedStartTime {
-            guard identity.startTime == capturedStartTime else {
+            guard sameStart(identity.startTime, capturedStartTime) else {
                 throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: pid))
             }
         }
@@ -156,7 +161,7 @@ public struct KillEngine: Sendable {
             try await Task.sleep(nanoseconds: 250_000_000) // 0.25s grace
             guard isProcessAlive(pid: pid) else { return }
             guard let refreshedIdentity = identityProvider.identity(of: pid),
-                  refreshedIdentity.startTime == (capturedStartTime ?? identity.startTime),
+                  sameStart(refreshedIdentity.startTime, capturedStartTime ?? identity.startTime),
                   refreshedIdentity.uid == identity.uid else {
                 throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: pid))
             }

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct DockerKillRule: KillRule {
     private let runner: CommandRunner
@@ -74,9 +75,14 @@ struct DockerKillRule: KillRule {
               currentName.hasPrefix("com.docker") else {
             throw KillEngineError.validationFailure(reason: .dockerProcessMismatch(pid: item.pid))
         }
+        guard let identity = identityProvider.identity(of: item.pid) else {
+            throw KillEngineError.validationFailure(reason: .unknownOwner(pid: item.pid))
+        }
+        guard identity.uid == getuid() else {
+            throw KillEngineError.validationFailure(reason: .foreignProcess(pid: item.pid, ownerUID: identity.uid))
+        }
         if let snapshot = item.processStartTime {
-            guard let identity = identityProvider.identity(of: item.pid),
-                  identity.startTime == snapshot else {
+            guard sameStart(identity.startTime, snapshot) else {
                 throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: item.pid))
             }
         }

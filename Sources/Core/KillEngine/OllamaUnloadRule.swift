@@ -16,14 +16,12 @@ struct OllamaUnloadRule: KillRule {
         let model = try selectModel(for: item, from: models)
 
         let url = URL(string: "http://127.0.0.1:11434/api/generate")!
-        let body = try JSONSerialization.data(withJSONObject: ["model": model, "keep_alive": 0])
 
         return .ollamaUnload(
             model: model,
             commandDescription: "unload \(model) (keep_alive=0)",
             url: url,
-            method: "POST",
-            body: body
+            method: "POST"
         )
     }
 
@@ -39,6 +37,10 @@ struct OllamaUnloadRule: KillRule {
     }
 
     private func selectModel(for item: PortItem, from models: [String]) throws -> String {
+        if models.count == 1, let only = models.first {
+            return only
+        }
+
         let haystack = "\(item.label) \(item.subtitle)".lowercased()
         var matches = models.filter { modelName in
             matchesModel(modelName, in: haystack)

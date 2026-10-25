@@ -1,6 +1,16 @@
 import Foundation
 import Darwin
 
+/// Compare process start times at second granularity.
+///
+/// `lsof` / `proc_pidinfo` return start times with microsecond precision on
+/// macOS, while scanners may capture a coarser snapshot. Truncating both sides
+/// to whole seconds prevents pid-reuse false positives when the same process
+/// is compared across different sampling moments.
+func sameStart(_ lhs: Date, _ rhs: Date) -> Bool {
+    Int64(lhs.timeIntervalSince1970) == Int64(rhs.timeIntervalSince1970)
+}
+
 public protocol ProcessIdentityProvider: Sendable {
     func identity(of pid: pid_t) -> ProcessIdentity?
 }

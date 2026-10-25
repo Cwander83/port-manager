@@ -86,6 +86,32 @@ final class KillEngineTests: XCTestCase {
         )
     }
 
+    func testDefaultRuleAcceptsSubSecondStartTimeDifference() async throws {
+        let scanStartTime = Date(timeIntervalSince1970: 1_700_000_000)
+        let currentStartTime = Date(timeIntervalSince1970: 1_700_000_000.5)
+        let identity = ProcessIdentity(uid: getuid(), startTime: currentStartTime)
+        let rule = DefaultKillRule(identityProvider: MockProcessValidator(identity: identity))
+        let item = makeItem(
+            port: 3000,
+            pid: 12345,
+            processName: "node",
+            kind: .other,
+            processStartTime: scanStartTime
+        )
+
+        let action = try await rule.makeAction(item)
+
+        XCTAssertEqual(action, .killPid(pid: 12345, processStartTime: identity.startTime, commandDescription: "kill 12345"))
+    }
+
+    func testSameStartTreatsSubSecondDifferenceAsMatch() {
+        let a = Date(timeIntervalSince1970: 1_700_000_000)
+        let b = Date(timeIntervalSince1970: 1_700_000_000.5)
+        XCTAssertTrue(sameStart(a, b))
+        let c = Date(timeIntervalSince1970: 1_700_000_001)
+        XCTAssertFalse(sameStart(a, c))
+    }
+
     func testDefaultRuleSkipsPidReuseCheckWhenSnapshotNil() async throws {
         let identity = ownIdentity
         let rule = DefaultKillRule(identityProvider: MockProcessValidator(identity: identity))
@@ -115,6 +141,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker, localAddress: "0.0.0.0")
@@ -146,6 +173,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: "/nonexistent/docker",
             fallbackPath: fallbackPath
         )
@@ -173,6 +201,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8005, pid: 34567, processName: "docker", kind: .docker, localAddress: "0.0.0.0")
@@ -199,6 +228,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker, localAddress: "*")
@@ -225,6 +255,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker, localAddress: "[::]")
@@ -251,6 +282,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -279,6 +311,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -305,6 +338,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -330,6 +364,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -347,6 +382,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: "/nonexistent/docker",
             fallbackPath: "/also-missing/docker"
         )
@@ -373,6 +409,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -403,6 +440,7 @@ final class KillEngineTests: XCTestCase {
         let rule = DockerKillRule(
             runner: runner,
             nameProvider: MockProcessValidator(processName: "node"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
             primaryPath: dockerPath
         )
         let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
@@ -413,6 +451,27 @@ final class KillEngineTests: XCTestCase {
                 XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .dockerProcessMismatch(pid: 34567)))
             }
         )
+    }
+
+    func testDockerRuleRejectsForeignOwnedProxy() async {
+        let identity = ProcessIdentity(uid: 0, startTime: Date(timeIntervalSince1970: 1))
+        let dockerPath = makeTempFile(name: "docker")
+        let runner = MockCommandRunner()
+        let rule = DockerKillRule(
+            runner: runner,
+            nameProvider: MockProcessValidator(identity: identity, processName: "com.docker.backend"),
+            identityProvider: MockProcessValidator(identity: identity, processName: "com.docker.backend"),
+            primaryPath: dockerPath
+        )
+        let item = makeItem(port: 8080, pid: 34567, processName: "docker", kind: .docker)
+
+        await XCTAssertThrowsErrorAsync(
+            { _ = try await rule.makeAction(item) },
+            { error in
+                XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .foreignProcess(pid: 34567, ownerUID: 0)))
+            }
+        )
+        XCTAssertTrue(runner.invocations.isEmpty, "should not invoke docker ps for foreign proxy")
     }
 
     func testDockerRuleDetectsPidReuseBeforeDockerPs() async {
@@ -613,6 +672,60 @@ final class KillEngineTests: XCTestCase {
         )
     }
 
+    func testBrewRuleHandlesOtherKindWithMappedProcessName() async throws {
+        let brewPath = makeTempFile(name: "brew")
+        let runner = MockCommandRunner()
+        runner.results = [
+            CommandResult(
+                exitCode: 0,
+                stdout: "Name          Status\npostgresql@16 started\n",
+                stderr: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                stdout: "PID\tStatus\tLabel\n",
+                stderr: ""
+            )
+        ]
+        let rule = BrewServiceRule(runner: runner, primaryPath: brewPath)
+        let item = makeItem(port: 5432, pid: 23456, processName: "postgres", kind: .other)
+
+        let action = try await rule.makeAction(item)
+
+        if case .brewStop(let serviceName, _, _) = action {
+            XCTAssertEqual(serviceName, "postgresql@16")
+        } else {
+            XCTFail("expected brew stop, got \(action)")
+        }
+    }
+
+    func testBrewRuleResolvesTruncatedRedisServerName() async throws {
+        let brewPath = makeTempFile(name: "brew")
+        let runner = MockCommandRunner()
+        runner.results = [
+            CommandResult(
+                exitCode: 0,
+                stdout: "Name          Status\nredis         started\n",
+                stderr: ""
+            ),
+            CommandResult(
+                exitCode: 0,
+                stdout: "PID\tStatus\tLabel\n",
+                stderr: ""
+            )
+        ]
+        let rule = BrewServiceRule(runner: runner, primaryPath: brewPath)
+        let item = makeItem(port: 6379, pid: 12345, processName: "redis-ser", kind: .brew)
+
+        let action = try await rule.makeAction(item)
+
+        if case .brewStop(let serviceName, _, _) = action {
+            XCTAssertEqual(serviceName, "redis")
+        } else {
+            XCTFail("expected brew stop, got \(action)")
+        }
+    }
+
     // MARK: - Ollama unload rule
 
     func testOllamaRuleDispatchesUnload() async throws {
@@ -633,15 +746,13 @@ final class KillEngineTests: XCTestCase {
         let action = try await rule.makeAction(item)
 
         let expectedURL = URL(string: "http://127.0.0.1:11434/api/generate")!
-        let expectedBody = try JSONSerialization.data(withJSONObject: ["model": "llama3:70b", "keep_alive": 0])
         XCTAssertEqual(
             action,
             .ollamaUnload(
                 model: "llama3:70b",
                 commandDescription: "unload llama3:70b (keep_alive=0)",
                 url: expectedURL,
-                method: "POST",
-                body: expectedBody
+                method: "POST"
             )
         )
         XCTAssertEqual(transport.requests.first?.url?.path, "/api/ps")
@@ -665,7 +776,7 @@ final class KillEngineTests: XCTestCase {
 
         let action = try await rule.makeAction(item)
 
-        if case .ollamaUnload(let model, let commandDescription, _, _, _) = action {
+        if case .ollamaUnload(let model, let commandDescription, _, _) = action {
             XCTAssertEqual(model, "mistral:latest")
             XCTAssertEqual(commandDescription, "unload mistral:latest (keep_alive=0)")
         } else {
@@ -691,7 +802,7 @@ final class KillEngineTests: XCTestCase {
 
         let action = try await rule.makeAction(item)
 
-        if case .ollamaUnload(let model, _, _, _, _) = action {
+        if case .ollamaUnload(let model, _, _, _) = action {
             XCTAssertEqual(model, "llama3:70b")
         } else {
             XCTFail("expected ollama unload, got \(action)")
@@ -766,7 +877,7 @@ final class KillEngineTests: XCTestCase {
     func testOllamaRuleThrowsWhenModelsDoNotMatch() async {
         let transport = MockHTTPTransport()
         transport.responses = [
-            makeHTTPResponse(body: "{\"models\":[{\"name\":\"mistral:latest\"}]}", statusCode: 200)
+            makeHTTPResponse(body: "{\"models\":[{\"name\":\"mistral:latest\"},{\"name\":\"codellama\"}]}", statusCode: 200)
         ]
         let rule = OllamaUnloadRule(transport: transport)
         let item = makeItem(
@@ -784,6 +895,30 @@ final class KillEngineTests: XCTestCase {
                 XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .modelNotResolvable))
             }
         )
+    }
+
+    func testOllamaRuleFallsBackToSingleLoadedModel() async throws {
+        let transport = MockHTTPTransport()
+        transport.responses = [
+            makeHTTPResponse(body: "{\"models\":[{\"name\":\"llama3:70b\"}]}", statusCode: 200)
+        ]
+        let rule = OllamaUnloadRule(transport: transport)
+        let item = makeItem(
+            port: 11434,
+            pid: 56789,
+            processName: "ollama",
+            kind: .ollama,
+            label: "ollama",
+            subtitle: "ollama"
+        )
+
+        let action = try await rule.makeAction(item)
+
+        if case .ollamaUnload(let model, _, _, _) = action {
+            XCTAssertEqual(model, "llama3:70b")
+        } else {
+            XCTFail("expected ollama unload, got \(action)")
+        }
     }
 
     // MARK: - Command runner
@@ -852,6 +987,7 @@ final class KillEngineTests: XCTestCase {
                 DockerKillRule(
                     runner: runner,
                     nameProvider: MockProcessValidator(processName: "com.docker.backend"),
+                    identityProvider: MockProcessValidator(identity: ownIdentity),
                     primaryPath: dockerPath
                 ),
                 DefaultKillRule(identityProvider: MockProcessValidator(identity: ownIdentity))
@@ -926,7 +1062,7 @@ final class KillEngineTests: XCTestCase {
 
         let action = try await engine.action(for: item)
 
-        if case .ollamaUnload(let model, let commandDescription, _, _, _) = action {
+        if case .ollamaUnload(let model, let commandDescription, _, _) = action {
             XCTAssertEqual(model, "llama3:70b")
             XCTAssertEqual(commandDescription, "unload llama3:70b (keep_alive=0)")
         } else {
@@ -948,10 +1084,8 @@ final class KillEngineTests: XCTestCase {
                 process.waitUntilExit()
             }
         }
-        // Give the child a moment to start so the identity read and signal are
-        // not racing with process startup.
-        try await Task.sleep(nanoseconds: 100_000_000)
-        let startTime = ProcessOwnerValidator().identity(of: pid)?.startTime
+        let startTime = await waitForProcessStart(pid: pid)
+        XCTAssertNotNil(startTime)
 
         let engine = KillEngine(identityProvider: ProcessOwnerValidator())
         try await engine.execute(
@@ -965,9 +1099,12 @@ final class KillEngineTests: XCTestCase {
     }
 
     func testExecuteKillPidEscalatesToSIGKILL() async throws {
+        let readyPath = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        defer { try? FileManager.default.removeItem(atPath: readyPath) }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", "trap '' TERM; while true; do sleep 1; done"]
+        process.arguments = ["-c", "trap '' TERM; touch \(readyPath); while true; do sleep 1; done"]
         try process.run()
         let pid = process.processIdentifier
         defer {
@@ -976,9 +1113,9 @@ final class KillEngineTests: XCTestCase {
                 process.waitUntilExit()
             }
         }
-        // Allow the shell to install the SIGTERM handler before we signal it.
-        try await Task.sleep(nanoseconds: 100_000_000)
-        let startTime = ProcessOwnerValidator().identity(of: pid)?.startTime
+        let startTime = await waitForProcessStart(pid: pid)
+        XCTAssertNotNil(startTime)
+        await waitForFile(at: readyPath)
 
         let engine = KillEngine(identityProvider: ProcessOwnerValidator())
         try await engine.execute(
@@ -1109,8 +1246,7 @@ final class KillEngineTests: XCTestCase {
             model: "llama3:70b",
             commandDescription: "unload llama3:70b (keep_alive=0)",
             url: url,
-            method: "POST",
-            body: Data()
+            method: "POST"
         )
 
         try await engine.execute(action, using: MockCommandRunner())
@@ -1136,14 +1272,13 @@ final class KillEngineTests: XCTestCase {
             model: "llama3:70b",
             commandDescription: "unload llama3:70b (keep_alive=0)",
             url: url,
-            method: "POST",
-            body: Data()
+            method: "POST"
         )
 
         await XCTAssertThrowsErrorAsync(
             { try await engine.execute(action, using: MockCommandRunner()) },
             { error in
-                XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .invalidServiceName("ollama URL")))
+                XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .invalidOllamaURL))
                 XCTAssertEqual(transport.requests.count, 0)
             }
         )
@@ -1160,8 +1295,7 @@ final class KillEngineTests: XCTestCase {
             model: "llama3:70b",
             commandDescription: "unload llama3:70b (keep_alive=0)",
             url: url,
-            method: "POST",
-            body: Data()
+            method: "POST"
         )
 
         await XCTAssertThrowsErrorAsync(
@@ -1202,6 +1336,21 @@ final class KillEngineTests: XCTestCase {
         XCTAssertFalse(message.contains("docker ps"))
     }
 
+    func testCommandRunnerErrorLocalizedDescription() {
+        XCTAssertEqual(CommandRunnerError.relativePath("docker").localizedDescription, "Executable path must be absolute: docker.")
+        XCTAssertEqual(CommandRunnerError.timeout.localizedDescription, "Command timed out.")
+    }
+
+    func testHTTPTransportErrorLocalizedDescription() {
+        XCTAssertEqual(HTTPTransportError.timeout.localizedDescription, "HTTP request timed out.")
+        XCTAssertEqual(HTTPTransportError.noResponse.localizedDescription, "HTTP request returned no response.")
+    }
+
+    func testInvalidOllamaURLErrorMessage() {
+        let error = KillEngineError.validationFailure(reason: .invalidOllamaURL)
+        XCTAssertTrue(error.localizedDescription.contains("localhost"))
+    }
+
     func testSelfKillErrorMessage() {
         let error = KillEngineError.validationFailure(reason: .cannotSignalSelf(pid: getpid()))
         XCTAssertTrue(error.localizedDescription.contains("Cannot signal the running application"))
@@ -1232,6 +1381,26 @@ private func makeItem(
         processStartTime: processStartTime,
         localAddress: localAddress
     )
+}
+
+private func waitForFile(at path: String, timeoutNanoseconds: UInt64 = 5_000_000_000, intervalNanoseconds: UInt64 = 10_000_000) async {
+    let iterations = Int(timeoutNanoseconds / intervalNanoseconds)
+    for _ in 0..<iterations {
+        if FileManager.default.fileExists(atPath: path) { return }
+        try? await Task.sleep(nanoseconds: intervalNanoseconds)
+    }
+    XCTFail("ready file did not appear at \(path)")
+}
+
+private func waitForProcessStart(pid: pid_t, timeoutNanoseconds: UInt64 = 5_000_000_000, intervalNanoseconds: UInt64 = 10_000_000) async -> Date? {
+    let iterations = Int(timeoutNanoseconds / intervalNanoseconds)
+    for _ in 0..<iterations {
+        if let start = ProcessOwnerValidator().identity(of: pid)?.startTime {
+            return start
+        }
+        try? await Task.sleep(nanoseconds: intervalNanoseconds)
+    }
+    return nil
 }
 
 private var ownIdentity: ProcessIdentity {
