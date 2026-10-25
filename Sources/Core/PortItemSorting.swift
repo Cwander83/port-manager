@@ -10,3 +10,13 @@ public extension [PortItem] {
         }
     }
 }
+
+public func nextFreePort(used: Set<Int>, startingAt: Int = 3000) -> Int? {
+    guard (1...65_535).contains(startingAt) else { return nil }
+    var candidate = startingAt
+    while used.contains(candidate) {
+        candidate += 1
+        guard candidate <= 65_535 else { return nil }
+    }
+    return candidate
+}

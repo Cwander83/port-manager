@@ -19,13 +19,14 @@ public enum ListenerKind: String, CaseIterable, Sendable {
 }
 
 public struct PortItem: Sendable, Identifiable {
-    public var id: Int { port }
+    public var id: String { "\(pid):\(port)" }
 
     public let port: Int
     public let pid: pid_t
     public let processName: String
     public let kind: ListenerKind
     public let label: String
+    public let subtitle: String
     public let ramBytes: Int64?
     public let isZombie: Bool
     public let startedAt: Date?
@@ -36,6 +37,7 @@ public struct PortItem: Sendable, Identifiable {
         processName: String,
         kind: ListenerKind,
         label: String,
+        subtitle: String,
         ramBytes: Int64?,
         isZombie: Bool,
         startedAt: Date? = nil
@@ -45,8 +47,29 @@ public struct PortItem: Sendable, Identifiable {
         self.processName = processName
         self.kind = kind
         self.label = label
+        self.subtitle = subtitle
         self.ramBytes = ramBytes
         self.isZombie = isZombie
         self.startedAt = startedAt
+    }
+
+    public func ageLabel(now: Date = Date()) -> String {
+        guard let startedAt else { return "unknown age" }
+        let seconds = now.timeIntervalSince(startedAt)
+        guard seconds > 0 else { return "just now" }
+
+        let minutes = seconds / 60
+        let hours = minutes / 60
+        let days = hours / 24
+
+        if days >= 1 {
+            return String(format: "%.0fd", days)
+        } else if hours >= 1 {
+            return String(format: "%.0fh", hours)
+        } else if minutes >= 1 {
+            return String(format: "%.0fm", minutes)
+        } else {
+            return String(format: "%.0fs", seconds)
+        }
     }
 }

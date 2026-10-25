@@ -11,6 +11,7 @@ public struct MockPortScanner: PortScanner {
                 processName: "node",
                 kind: .node,
                 label: "myshop",
+                subtitle: "next dev",
                 ramBytes: 128 * 1024 * 1024,
                 isZombie: false
             ),
@@ -20,6 +21,7 @@ public struct MockPortScanner: PortScanner {
                 processName: "postgres",
                 kind: .brew,
                 label: "postgres",
+                subtitle: "brew service",
                 ramBytes: 64 * 1024 * 1024,
                 isZombie: false
             ),
@@ -29,6 +31,7 @@ public struct MockPortScanner: PortScanner {
                 processName: "docker",
                 kind: .docker,
                 label: "myapp-container",
+                subtitle: "docker",
                 ramBytes: 210 * 1024 * 1024,
                 isZombie: false
             ),
@@ -38,7 +41,8 @@ public struct MockPortScanner: PortScanner {
                 processName: "node",
                 kind: .node,
                 label: "3d",
-                ramBytes: 900 * 1024,
+                subtitle: "orphaned node",
+                ramBytes: Int64(943_719),
                 isZombie: true,
                 startedAt: Date().addingTimeInterval(-3 * 24 * 60 * 60)
             ),
@@ -47,8 +51,9 @@ public struct MockPortScanner: PortScanner {
                 pid: 56789,
                 processName: "ollama",
                 kind: .ollama,
-                label: "llama3:70b",
-                ramBytes: 4_200 * 1024 * 1024,
+                label: "ollama",
+                subtitle: "llama3:70b loaded",
+                ramBytes: Int64(4.2 * 1024 * 1024 * 1024),
                 isZombie: false
             ),
             PortItem(
@@ -57,6 +62,7 @@ public struct MockPortScanner: PortScanner {
                 processName: "node",
                 kind: .node,
                 label: "portfolio",
+                subtitle: "vite",
                 ramBytes: 86 * 1024 * 1024,
                 isZombie: false
             )

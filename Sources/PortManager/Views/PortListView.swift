@@ -7,6 +7,9 @@ struct PortListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let errorMessage = store.error?.localizedDescription {
+                errorBanner(message: errorMessage)
+            }
             summary
             Divider()
             list
@@ -35,6 +38,21 @@ struct PortListView: View {
         guard let date = store.lastScanAt else { return "⟳ —" }
         let seconds = Int(Date().timeIntervalSince(date))
         return "⟳ \(seconds)s ago"
+    }
+
+    private func errorBanner(message: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.system(size: 11))
+                .lineLimit(2)
+            Spacer()
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(.red.opacity(0.08))
     }
 
     private var summary: some View {
@@ -74,14 +92,14 @@ struct PortListView: View {
                 Text("Next free port")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                Text(nextFreePort)
+                Text(nextFreePortText)
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(.green)
             }
             Spacer()
             Button("⧉ copy") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(nextFreePort, forType: .string)
+                NSPasteboard.general.setString(nextFreePortText, forType: .string)
             }
             .font(.system(size: 10.5, weight: .semibold))
             .buttonStyle(.borderless)
@@ -98,13 +116,10 @@ struct PortListView: View {
         .background(.ultraThinMaterial)
     }
 
-    private var nextFreePort: String {
+    private var nextFreePortText: String {
         let used = Set(store.listeners.map(\.port))
-        var candidate = 3000
-        while used.contains(candidate) {
-            candidate += 1
-        }
-        return String(candidate)
+        guard let port = Core.nextFreePort(used: used) else { return "—" }
+        return String(port)
     }
 
     private var actions: some View {
@@ -140,6 +155,13 @@ private struct PortRow: View {
             Circle()
                 .fill(kindColor)
                 .frame(width: 7, height: 7)
+                .overlay(
+                    item.isZombie
+                        ? Image(systemName: "xmark")
+                            .font(.system(size: 5, weight: .bold))
+                            .foregroundStyle(.white)
+                        : nil
+                )
 
             Text(":\(item.port)")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
@@ -150,7 +172,7 @@ private struct PortRow: View {
                 Text(item.label)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
-                Text(" · \(subtitle)")
+                Text(" · \(displaySubtitle)")
                     .font(.system(size: 12.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -176,10 +198,14 @@ private struct PortRow: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(item.isZombie ? .red.opacity(0.12) : .clear)
                 )
+                .disabled(true)
+                .help("requires KillEngine (v1)")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(item.isZombie ? Color.red.opacity(0.07) : Color.clear)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private var kindColor: Color {
@@ -192,17 +218,11 @@ private struct PortRow: View {
         }
     }
 
-    private var subtitle: String {
+    private var displaySubtitle: String {
         if item.isZombie {
-            return "orphaned · 3d"
+            return "orphaned · \(item.ageLabel())"
         }
-        switch item.kind {
-        case .node: return "\(item.processName) dev"
-        case .brew: return "brew service"
-        case .docker: return "docker"
-        case .ollama: return "\(item.label) loaded"
-        case .other: return item.processName
-        }
+        return item.subtitle
     }
 
     private var actionLabel: String {
@@ -212,22 +232,10 @@ private struct PortRow: View {
         case .node, .other: return "kill"
         }
     }
-}
 
-private extension Int64 {
-    func formatBytes() -> String {
-        let gb = Double(self) / (1024 * 1024 * 1024)
-        if gb >= 1.0 {
-            return String(format: "%.1f GB", gb)
-        }
-        let mb = Double(self) / (1024 * 1024)
-        if mb >= 1.0 {
-            return String(format: "%.0f MB", mb)
-        }
-        let kb = Double(self) / 1024
-        if kb >= 1.0 {
-            return String(format: "%.1f KB", kb)
-        }
-        return "\(self) B"
+    private var accessibilityLabel: String {
+        let state = item.isZombie ? "zombie" : item.kind.displayName
+        return "\(state) on port \(item.port), \(item.label), \(item.ramBytes?.formatBytes() ?? "unknown RAM")"
     }
 }
+

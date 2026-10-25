@@ -22,6 +22,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
         let store = store
 
         let popover = NSPopover()
@@ -42,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageLeft
             button.action = #selector(togglePopover(_:))
             button.target = self
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseDown])
         }
 
         store.$listeners
