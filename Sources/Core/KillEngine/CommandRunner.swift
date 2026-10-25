@@ -15,16 +15,21 @@ public struct CommandResult: Sendable {
 
 public enum CommandRunnerError: Error, Equatable {
     case relativePath(String)
+    case timeout
 }
 
 /// Spawns an executable using an absolute path and an argv array.
 /// Never invokes a shell and never performs PATH lookup.
-public protocol CommandRunner {
+public protocol CommandRunner: Sendable {
     func run(executable: String, arguments: [String]) throws -> CommandResult
 }
 
 public struct RealCommandRunner: CommandRunner {
-    public init() {}
+    public let timeout: TimeInterval
+
+    public init(timeout: TimeInterval = 10) {
+        self.timeout = timeout
+    }
 
     public func run(executable: String, arguments: [String]) throws -> CommandResult {
         guard executable.hasPrefix("/") else {
@@ -40,18 +45,67 @@ public struct RealCommandRunner: CommandRunner {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
+        let stdout = PipeAccumulator()
+        let stderr = PipeAccumulator()
+
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty {
+                stdout.append(data)
+            }
+        }
+        errorPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty {
+                stderr.append(data)
+            }
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            semaphore.signal()
+        }
+
         try process.run()
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
+
+        // Stop handlers before final drain to avoid racing the callbacks.
+        outputPipe.fileHandleForReading.readabilityHandler = nil
+        errorPipe.fileHandleForReading.readabilityHandler = nil
+
+        if waitResult == .timedOut {
+            process.terminate()
+            process.waitUntilExit()
+            throw CommandRunnerError.timeout
+        }
+
         process.waitUntilExit()
 
-        let stdout = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        // Final drain in case any data arrived after handlers were removed.
+        stdout.append(outputPipe.fileHandleForReading.readDataToEndOfFile())
+        stderr.append(errorPipe.fileHandleForReading.readDataToEndOfFile())
 
-        return CommandResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
+        return CommandResult(
+            exitCode: process.terminationStatus,
+            stdout: String(data: stdout.data, encoding: .utf8) ?? "",
+            stderr: String(data: stderr.data, encoding: .utf8) ?? ""
+        )
+    }
+}
+
+private final class PipeAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
     }
 }
 
 /// Records every invocation and returns canned output or errors.
-public final class MockCommandRunner: CommandRunner {
+public final class MockCommandRunner: CommandRunner, @unchecked Sendable {
     public private(set) var invocations: [(executable: String, arguments: [String])] = []
     public var results: [CommandResult] = []
     public var nextError: Error?
@@ -61,10 +115,11 @@ public final class MockCommandRunner: CommandRunner {
     public func run(executable: String, arguments: [String]) throws -> CommandResult {
         invocations.append((executable, arguments))
         if let error = nextError {
+            nextError = nil
             throw error
         }
         guard !results.isEmpty else {
-            return CommandResult(exitCode: 0, stdout: "", stderr: "")
+            return CommandResult(exitCode: 1, stdout: "", stderr: "unstubbed mock invocation")
         }
         return results.removeFirst()
     }

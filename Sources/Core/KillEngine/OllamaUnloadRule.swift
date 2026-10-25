@@ -13,18 +13,16 @@ struct OllamaUnloadRule: KillRule {
 
     func makeAction(_ item: PortItem) throws -> KillAction {
         let models = try loadedModels()
-        guard let model = models.first else {
-            throw KillEngineError.validationFailure(reason: .ollamaModelNotLoaded(port: item.port))
-        }
+        let model = try selectModel(for: item, from: models)
 
-        let url = URL(string: "http://127.0.0.1:11434/api/unload")!
-        let body = try JSONSerialization.data(withJSONObject: ["model": model])
+        let url = URL(string: "http://127.0.0.1:11434/api/generate")!
+        let body = try JSONSerialization.data(withJSONObject: ["model": model, "keep_alive": 0])
 
         return .ollamaUnload(
             model: model,
-            commandDescription: "unload \(model) via Ollama API",
+            commandDescription: "unload \(model) (keep_alive=0)",
             url: url,
-            method: "DELETE",
+            method: "POST",
             body: body
         )
     }
@@ -35,9 +33,25 @@ struct OllamaUnloadRule: KillRule {
         request.httpMethod = "GET"
         let (data, response) = try transport.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            return []
+            throw KillEngineError.ollamaUnreachable
         }
         return parseModels(from: data)
+    }
+
+    private func selectModel(for item: PortItem, from models: [String]) throws -> String {
+        let haystack = "\(item.label) \(item.subtitle)".lowercased()
+        let matches = models.filter { haystack.contains($0.lowercased()) }
+
+        if matches.count == 1 {
+            return matches[0]
+        }
+        if matches.count > 1 {
+            throw KillEngineError.validationFailure(reason: .ambiguousModel)
+        }
+        if models.isEmpty {
+            throw KillEngineError.validationFailure(reason: .ollamaModelNotLoaded(port: item.port))
+        }
+        throw KillEngineError.validationFailure(reason: .ollamaModelNotLoaded(port: item.port))
     }
 }
 

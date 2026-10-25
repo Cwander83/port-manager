@@ -31,6 +31,10 @@ public struct PortItem: Sendable, Identifiable {
     public let ramBytes: Int64?
     public let isZombie: Bool
     public let startedAt: Date?
+    /// When the scanner captured this process, for pid-reuse detection.
+    public let processStartTime: Date?
+    /// Local bind address reported by the scanner (e.g. `127.0.0.1`, `0.0.0.0`, `[::]`).
+    public let localAddress: String?
 
     // Additive fields from parallel kill-engine branch; kept with defaults for clean merge.
     public let processStartTime: Date?

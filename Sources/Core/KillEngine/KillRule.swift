@@ -6,25 +6,30 @@ import Foundation
 /// dialog plus the execution payload needed to carry it out.
 public enum KillAction: Sendable, Equatable {
     /// Send SIGTERM directly to a PID via the `kill(2)` syscall.
-    case killPid(pid: pid_t, commandDescription: String)
+    /// `processStartTime` is the start time captured at scan time; it is
+    /// re-verified immediately before `kill(2)` to detect pid reuse.
+    case killPid(
+        pid: pid_t,
+        processStartTime: Date?,
+        commandDescription: String
+    )
 
     /// Run `docker stop <containerID>`.
     case dockerStop(
         containerID: String,
         commandDescription: String,
-        executable: String,
-        arguments: [String]
+        executable: String
     )
 
     /// Run `brew services stop <serviceName>`.
     case brewStop(
         serviceName: String,
         commandDescription: String,
-        executable: String,
-        arguments: [String]
+        executable: String
     )
 
-    /// DELETE /api/unload against the local Ollama server.
+    /// POST /api/generate with `{"model": <model>, "keep_alive": 0}`
+    /// to unload the model from the local Ollama server.
     case ollamaUnload(
         model: String,
         commandDescription: String,
@@ -37,16 +42,23 @@ public enum KillAction: Sendable, Equatable {
 public enum KillEngineError: Error, Equatable {
     case validationFailure(reason: ValidationFailureReason)
     case dockerBinaryMissing
+    case dockerDaemonUnavailable(message: String)
     case brewBinaryMissing
+    case ollamaUnreachable
 }
 
 public enum ValidationFailureReason: Equatable, Sendable {
     case invalidPID(pid: pid_t)
+    case unknownOwner(pid: pid_t)
     case foreignProcess(pid: pid_t, ownerUID: uid_t)
+    case processIdentityChanged(pid: pid_t)
     case invalidContainerID(String)
-    case containerLookupFailed(port: Int, output: String)
+    case containerLookupFailed(port: Int)
+    case ambiguousContainerMatch(port: Int)
+    case dockerProcessMismatch(pid: pid_t)
     case unmappedBrewProcess(processName: String)
     case ollamaModelNotLoaded(port: Int)
+    case ambiguousModel
 }
 
 /// Determines how to stop a listener and returns a `KillAction`.
