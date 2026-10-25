@@ -36,10 +36,6 @@ public struct PortItem: Sendable, Identifiable {
     /// Local bind address reported by the scanner (e.g. `127.0.0.1`, `0.0.0.0`, `[::]`).
     public let localAddress: String?
 
-    // Additive fields from parallel kill-engine branch; kept with defaults for clean merge.
-    public let processStartTime: Date?
-    public let localAddress: String?
-
     public init(
         port: Int,
         address: String = "0.0.0.0",
