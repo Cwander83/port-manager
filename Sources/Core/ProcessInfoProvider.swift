@@ -63,6 +63,10 @@ private extension RealProcessInfoProvider {
     }
 
     func ramBytes(for pid: pid_t) -> Int64? {
+        // Only report RAM for processes owned by the current user. libproc calls
+        // fail or return stale data for other users; do not spawn `ps` per foreign PID.
+        guard isOwnedByCurrentUser(pid: pid) else { return nil }
+
         var info = rusage_info_v0()
         let result = withUnsafeMutablePointer(to: &info) { pointer in
             pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { typed in
@@ -110,6 +114,13 @@ private extension RealProcessInfoProvider {
         let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
         guard size == MemoryLayout<proc_bsdinfo>.size else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(info.pbi_start_tvsec))
+    }
+
+    func isOwnedByCurrentUser(pid: pid_t) -> Bool {
+        var info = proc_bsdshortinfo()
+        let size = proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdshortinfo>.size))
+        guard size == MemoryLayout<proc_bsdshortinfo>.size else { return false }
+        return info.pbsi_uid == getuid()
     }
 }
 #else

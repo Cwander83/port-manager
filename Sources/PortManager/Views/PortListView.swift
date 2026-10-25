@@ -57,7 +57,7 @@ struct PortListView: View {
 
     private var summary: some View {
         HStack {
-            Text("\(store.listeners.count) listeners")
+            Text("\(store.processCount) listeners")
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -71,8 +71,7 @@ struct PortListView: View {
     }
 
     private var totalRAM: String {
-        let bytes = store.listeners.compactMap(\.ramBytes).reduce(0, +)
-        return "\(bytes.formatBytes()) RAM held"
+        "\(store.totalRAM.formatBytes()) RAM held"
     }
 
     private var list: some View {

@@ -1,53 +1,49 @@
 import Foundation
 
-/// Real scanner that shells out to `/usr/sbin/lsof` and parses the result.
+/// Real scanner that runs `/usr/sbin/lsof` and parses the result.
 ///
 /// Execution follows the exec contract in `PortScanner` and ADR-001 §7:
 /// - absolute path (`/usr/sbin/lsof`)
 /// - argv array, no shell
 /// - no `PATH` lookup
+/// - timeout and cancellation support via the injectable `ProcessRunner`
 public struct LsofPortScanner: PortScanner {
+    public static let lsofPath = "/usr/sbin/lsof"
+    public static let lsofTimeout: TimeInterval = 5.0
+
+    private let runner: any ProcessRunner
     public let provider: any ProcessInfoProvider
 
-    public init(provider: any ProcessInfoProvider = RealProcessInfoProvider()) {
+    public init(
+        runner: any ProcessRunner = RealProcessRunner(),
+        provider: any ProcessInfoProvider = RealProcessInfoProvider()
+    ) {
+        self.runner = runner
         self.provider = provider
     }
 
-    public func scan() throws -> [PortItem] {
-        let output = try runLsof()
-        return parseLsofOutput(output)
+    public func scan() async throws -> [PortItem] {
+        let result = try await runner.run(
+            executableURL: URL(fileURLWithPath: Self.lsofPath),
+            arguments: ["-iTCP", "-sTCP:LISTEN", "-P", "-n"],
+            timeout: Self.lsofTimeout
+        )
+
+        // lsof exits 1 with no output when there are no matching listeners.
+        if result.status == 1, result.output.isEmpty {
+            return []
+        }
+
+        guard result.status == 0 else {
+            throw LsofError.processFailed(status: result.status)
+        }
+
+        return parseLsofOutput(result.output)
     }
 
     /// Test-only entry point that parses a captured lsof output without spawning a process.
     func parse(_ output: String) -> [PortItem] {
         parseLsofOutput(output)
-    }
-
-    // MARK: - lsof execution
-
-    private func runLsof() throws -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        task.arguments = ["-iTCP", "-sTCP:LISTEN", "-P", "-n"]
-
-        let pipe = Pipe()
-        task.standardOutput = pipe
-
-        try task.run()
-        task.waitUntilExit()
-
-        guard task.terminationStatus == 0 else {
-            throw LsofError.processFailed(status: task.terminationStatus)
-        }
-
-        guard let output = String(
-            data: pipe.fileHandleForReading.readDataToEndOfFile(),
-            encoding: .utf8
-        ) else {
-            throw LsofError.outputDecodingFailed
-        }
-
-        return output
     }
 
     // MARK: - Parsing
@@ -68,34 +64,53 @@ public struct LsofPortScanner: PortScanner {
 
             guard afterHeader else { continue }
 
-            let tokens = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard tokens.count >= 10,
-                  tokens.last == "(LISTEN)",
-                  let pid = pid_t(String(tokens[1])) else {
+            guard let parsed = parseRow(line),
+                  (1...65_535).contains(parsed.port) else {
                 continue
             }
 
-            let processName = String(tokens[0])
-            let nameToken = String(tokens[tokens.count - 2])
-
-            guard let (address, port) = parseAddressPort(nameToken) else { continue }
-
-            let key = "\(pid):\(port):\(address)"
+            let key = "\(parsed.pid):\(parsed.port):\(parsed.address)"
             guard seen.insert(key).inserted else { continue }
 
-            let metadata = metadataCache[pid] ?? provider.metadata(for: pid)
-            metadataCache[pid] = metadata
+            let metadata = metadataCache[parsed.pid] ?? provider.metadata(for: parsed.pid)
+            metadataCache[parsed.pid] = metadata
 
             items.append(makeItem(
-                processName: processName,
-                pid: pid,
-                address: address,
-                port: port,
+                processName: parsed.command,
+                pid: parsed.pid,
+                address: parsed.address,
+                port: parsed.port,
                 metadata: metadata
             ))
         }
 
         return items
+    }
+
+    private struct ParsedRow {
+        let command: String
+        let pid: pid_t
+        let address: String
+        let port: Int
+    }
+
+    /// Parses the stable trailing end of an lsof row.
+    ///
+    /// lsof output is fixed-width but fields can be blank. The reliable parts are:
+    /// - command: first whitespace-delimited token
+    /// - pid: second token
+    /// - `(LISTEN)`: last token
+    /// - address:port: second-to-last token (`127.0.0.1:3000`, `[::]:3000`, `*:3000`)
+    private func parseRow(_ line: String) -> ParsedRow? {
+        let tokens = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard tokens.count >= 4,
+              tokens.last == "(LISTEN)" else { return nil }
+
+        let nameToken = tokens[tokens.count - 2]
+        guard let (address, port) = parseAddressPort(nameToken) else { return nil }
+        guard let pid = pid_t(tokens[1]) else { return nil }
+
+        return ParsedRow(command: tokens[0], pid: pid, address: address, port: port)
     }
 
     private func parseAddressPort(_ token: String) -> (address: String, port: Int)? {
@@ -118,7 +133,10 @@ public struct LsofPortScanner: PortScanner {
         port: Int,
         metadata: ProcessMetadata
     ) -> PortItem {
-        let kind = kind(for: processName)
+        let kind = kind(for: processName, path: metadata.executablePath)
+        let isOrphan = metadata.parentPID == 1
+        let isZombie = isOrphan && (kind == .node || kind == .other)
+
         return PortItem(
             port: port,
             address: address,
@@ -128,26 +146,47 @@ public struct LsofPortScanner: PortScanner {
             label: label(for: metadata.executablePath, processName: processName),
             subtitle: subtitle(for: kind, processName: processName),
             ramBytes: metadata.ramBytes,
-            isZombie: metadata.parentPID == 1,
-            startedAt: metadata.startedAt
+            isZombie: isZombie,
+            startedAt: metadata.startedAt,
+            processStartTime: metadata.startedAt,
+            localAddress: address
         )
     }
 
-    private func kind(for processName: String) -> ListenerKind {
+    /// Known docker process names, including lsof's truncated `com.docke`.
+    private var dockerProcessNames: Set<String> {
+        ["docker", "com.docker.backend", "com.docke", "docker-proxy"]
+    }
+
+    private func kind(for processName: String, path: String?) -> ListenerKind {
         let lower = processName.lowercased()
 
         switch lower {
         case "node", "vite", "esbuild":
             return .node
-        case _ where lower.hasPrefix("com.docker") || lower.hasPrefix("com.docke") || lower == "docker":
+        case _ where dockerProcessNames.contains(lower):
             return .docker
         case "ollama":
             return .ollama
-        case _ where lower.hasPrefix("postgres") || lower.hasPrefix("redis") || lower.hasPrefix("mysql"):
-            return .brew
         default:
-            return .other
+            break
         }
+
+        // Path-root fallback: only brew-related processes installed under homebrew
+        // qualify as `.brew`. This prevents Postgres.app in /Applications from being
+        // misclassified while still catching homebrew postgres/redis/mysql.
+        let pathLower = path?.lowercased() ?? ""
+        let isUnderHomebrew = pathLower.hasPrefix("/opt/homebrew/") || pathLower.hasPrefix("/usr/local/homebrew/")
+        if isUnderHomebrew {
+            switch lower {
+            case _ where lower.hasPrefix("postgres") || lower.hasPrefix("redis") || lower.hasPrefix("mysql"):
+                return .brew
+            default:
+                break
+            }
+        }
+
+        return .other
     }
 
     /// Picks a project label from the executable path.
@@ -157,6 +196,8 @@ public struct LsofPortScanner: PortScanner {
     /// works for most dev setups: `/Users/me/Codebases/myshop/node_modules/.bin/node` →
     /// `myshop`. It is intentionally simple; it cannot resolve a node script's actual repo
     /// when the executable itself is a global `node`, and it ignores symlinks.
+    ///
+    /// Components ending in `.app` are skipped so `Slack.app` is never used as a project label.
     private func label(for path: String?, processName: String) -> String {
         guard let path = path, !path.isEmpty else { return processName }
 
@@ -180,6 +221,10 @@ public struct LsofPortScanner: PortScanner {
             if component.count == 36, component.filter({ $0 == "-" }).count == 4 {
                 continue
             }
+            // Skip app bundles.
+            if lower.hasSuffix(".app") {
+                continue
+            }
             return component
         }
 
@@ -192,7 +237,7 @@ public struct LsofPortScanner: PortScanner {
             "ollama",
             "postgres", "redis-server", "mysqld", "mysql",
             "python", "python3",
-            "com.docker.backend", "docker"
+            "com.docker.backend", "docker", "docker-proxy"
         ]
     }
 

@@ -7,9 +7,9 @@ import XCTest
 final class PortManagerTests: XCTestCase {
     // MARK: - Mock scanner
 
-    func testMockPortScannerReturnsSixFixtures() throws {
+    func testMockPortScannerReturnsSixFixtures() async throws {
         let scanner = MockPortScanner()
-        let items = try scanner.scan()
+        let items = try await scanner.scan()
 
         XCTAssertEqual(items.count, 6)
         XCTAssertEqual(items.map(\.port), [3000, 5432, 8080, 8081, 11434, 5173])
@@ -19,9 +19,9 @@ final class PortManagerTests: XCTestCase {
 
     // MARK: - Sorting
 
-    func testSortedForDisplayPutsZombieLast() throws {
+    func testSortedForDisplayPutsZombieLast() async throws {
         let scanner = MockPortScanner()
-        let items = try scanner.scan().sortedForDisplay()
+        let items = try await scanner.scan().sortedForDisplay()
 
         XCTAssertEqual(items.count, 6)
         XCTAssertEqual(items.last?.port, 8081)
@@ -42,6 +42,13 @@ final class PortManagerTests: XCTestCase {
         XCTAssertEqual(sorted.map(\.port), [3000, 8080, 8081])
     }
 
+    func testSortedForDisplayTieBreaksById() {
+        let a = PortItem(port: 3000, address: "127.0.0.1", pid: 2, processName: "node", kind: .node, label: "a", subtitle: "", ramBytes: 0, isZombie: false)
+        let b = PortItem(port: 3000, address: "[::1]", pid: 1, processName: "node", kind: .node, label: "b", subtitle: "", ramBytes: 0, isZombie: false)
+        let sorted = [a, b].sortedForDisplay()
+        XCTAssertEqual(sorted.map(\.id), [b.id, a.id])
+    }
+
     // MARK: - Identity / dual-stack (N3)
 
     func testPortItemIdUniquenessForDualStack() {
@@ -55,6 +62,28 @@ final class PortManagerTests: XCTestCase {
         // Same PID + port with different addresses = two distinct listeners.
         XCTAssertEqual(ipv4.pid, ipv6.pid)
         XCTAssertEqual(ipv4.port, ipv6.port)
+    }
+
+    // MARK: - Listener stats (deduped by PID)
+
+    func testListenerStatsDedupesDualStackByPID() {
+        let items = [
+            PortItem(port: 3000, address: "127.0.0.1", pid: 100, processName: "node", kind: .node, label: "a", subtitle: "", ramBytes: 100, isZombie: false),
+            PortItem(port: 3000, address: "[::1]", pid: 100, processName: "node", kind: .node, label: "a", subtitle: "", ramBytes: 100, isZombie: false)
+        ]
+        let stats = items.listenerStats()
+        XCTAssertEqual(stats.processCount, 1)
+        XCTAssertEqual(stats.totalRAM, 100)
+    }
+
+    func testListenerStatsHandlesMissingRAM() {
+        let items = [
+            PortItem(port: 3000, pid: 1, processName: "a", kind: .node, label: "a", subtitle: "", ramBytes: nil, isZombie: false),
+            PortItem(port: 3001, pid: 2, processName: "b", kind: .node, label: "b", subtitle: "", ramBytes: 512, isZombie: false)
+        ]
+        let stats = items.listenerStats()
+        XCTAssertEqual(stats.processCount, 2)
+        XCTAssertEqual(stats.totalRAM, 512)
     }
 
     // MARK: - Utilities
@@ -99,32 +128,38 @@ final class PortManagerTests: XCTestCase {
             PortItem(
                 port: 3000, address: "127.0.0.1", pid: 12345, processName: "node",
                 kind: .node, label: "myshop", subtitle: "node",
-                ramBytes: 128 * 1024 * 1024, isZombie: false, startedAt: date
+                ramBytes: 128 * 1024 * 1024, isZombie: false, startedAt: date,
+                processStartTime: date, localAddress: "127.0.0.1"
             ),
             PortItem(
                 port: 5432, address: "127.0.0.1", pid: 23456, processName: "postgres",
                 kind: .brew, label: "postgres", subtitle: "brew service",
-                ramBytes: 64 * 1024 * 1024, isZombie: false, startedAt: date
+                ramBytes: 64 * 1024 * 1024, isZombie: false, startedAt: date,
+                processStartTime: date, localAddress: "127.0.0.1"
             ),
             PortItem(
                 port: 6379, address: "127.0.0.1", pid: 34567, processName: "redis-ser",
                 kind: .brew, label: "redis", subtitle: "brew service",
-                ramBytes: 32 * 1024 * 1024, isZombie: false, startedAt: date
+                ramBytes: 32 * 1024 * 1024, isZombie: false, startedAt: date,
+                processStartTime: date, localAddress: "127.0.0.1"
             ),
             PortItem(
                 port: 11434, address: "127.0.0.1", pid: 45678, processName: "ollama",
                 kind: .ollama, label: "ollama", subtitle: "ollama",
-                ramBytes: Int64(4.2 * 1024 * 1024 * 1024), isZombie: false, startedAt: date
+                ramBytes: Int64(4.2 * 1024 * 1024 * 1024), isZombie: false, startedAt: date,
+                processStartTime: date, localAddress: "127.0.0.1"
             ),
             PortItem(
                 port: 5000, address: "0.0.0.0", pid: 56789, processName: "Python",
                 kind: .other, label: "backend", subtitle: "Python",
-                ramBytes: 12 * 1024 * 1024, isZombie: false, startedAt: date
+                ramBytes: 12 * 1024 * 1024, isZombie: false, startedAt: date,
+                processStartTime: date, localAddress: "0.0.0.0"
             ),
             PortItem(
                 port: 8081, address: "127.0.0.1", pid: 99999, processName: "node",
                 kind: .node, label: "node", subtitle: "node",
-                ramBytes: 1 * 1024 * 1024, isZombie: true, startedAt: date
+                ramBytes: 1 * 1024 * 1024, isZombie: true, startedAt: date,
+                processStartTime: date, localAddress: "127.0.0.1"
             )
         ]
 
@@ -171,10 +206,74 @@ final class PortManagerTests: XCTestCase {
         XCTAssertTrue(scanner.parse("COMMAND     PID USER...").isEmpty)
     }
 
+    func testLsofExitOneWithEmptyOutputReturnsEmpty() async throws {
+        let runner = FakeProcessRunner(results: [
+            ProcessRunResult(status: 1, output: "")
+        ])
+        let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
+        let items = try await scanner.scan()
+        XCTAssertTrue(items.isEmpty)
+    }
+
+    func testLsofExitOneWithOutputThrows() async throws {
+        let runner = FakeProcessRunner(results: [
+            ProcessRunResult(status: 1, output: "COMMAND PID USER...")
+        ])
+        let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
+        await XCTAssertThrowsError(try await scanner.scan())
+    }
+
+    func testLsofWildcardDualStackCollapsesToOneRow() throws {
+        let date = Date(timeIntervalSince1970: 4_000_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = try fixture(named: "lsof-wildcard-dualstack.txt")
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.pid, 22222)
+        XCTAssertEqual(items.first?.port, 3000)
+        XCTAssertEqual(items.first?.address, "*")
+    }
+
+    func testLsofRealFixtureParsesWithoutCrashing() async throws {
+        let output = try fixture(named: "lsof-real-2026-10-25.txt")
+        let scanner = LsofPortScanner()
+        let items = scanner.parse(output)
+        XCTAssertFalse(items.isEmpty)
+        // Wildcard dual-stack rows collapse to a single `*` address row per (pid, port).
+        let wildcardRows = items.filter { $0.address == "*" }
+        for row in wildcardRows {
+            let matching = items.filter { $0.pid == row.pid && $0.port == row.port }
+            XCTAssertEqual(matching.count, 1, "wildcard row for pid \(row.pid) port \(row.port) should be unique")
+        }
+    }
+
+    func testBrewUnderLaunchdIsNotZombie() throws {
+        let date = Date(timeIntervalSince1970: 5_000_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = try fixture(named: "lsof-launchd-postgres.txt")
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .brew)
+        XCTAssertEqual(items.first?.isZombie, false)
+    }
+
+    func testOtherUnderLaunchdIsZombie() throws {
+        let date = Date(timeIntervalSince1970: 6_000_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = try fixture(named: "lsof-launchd-python.txt")
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .other)
+        XCTAssertEqual(items.first?.isZombie, true)
+    }
+
     // MARK: - PortStore scan scheduling (N1)
 
     @MainActor
-    func testScanDropTickDoesNotCancelInFlightScan() throws {
+    func testScanDropTickDoesNotCancelInFlightScan() async throws {
         let item = PortItem(
             port: 4000, address: "127.0.0.1", pid: 777, processName: "node",
             kind: .node, label: "test", subtitle: "node",
@@ -191,11 +290,76 @@ final class PortManagerTests: XCTestCase {
             .dropFirst()
             .sink { _ in expectation.fulfill() }
 
-        wait(for: [expectation], timeout: 1.0)
+        await fulfillment(of: [expectation], timeout: 1.0)
         cancellable.cancel()
 
         XCTAssertEqual(slow.invocations, 1)
         XCTAssertEqual(store.listeners, [item])
+    }
+
+    @MainActor
+    func testScanTaskResetAllowsSecondTick() async throws {
+        let item = PortItem(
+            port: 4000, address: "127.0.0.1", pid: 777, processName: "node",
+            kind: .node, label: "test", subtitle: "node",
+            ramBytes: 1 * 1024 * 1024, isZombie: false
+        )
+        let fast = FakePortScanner(results: [[item], [item]])
+        let store = PortStore(scanner: fast)
+
+        store.tick()
+        let first = expectation(description: "first publish")
+        let cancellable = store.$listeners
+            .dropFirst()
+            .sink { _ in first.fulfill() }
+        await fulfillment(of: [first], timeout: 1.0)
+        cancellable.cancel()
+
+        // Wait for the task to finish resetting scanTask on the main actor.
+        try await Task.sleep(for: .milliseconds(50))
+
+        store.tick()
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(fast.invocations, 2)
+    }
+
+    @MainActor
+    func testStopScanningSuppressesPublish() async throws {
+        let item = PortItem(
+            port: 4000, address: "127.0.0.1", pid: 777, processName: "node",
+            kind: .node, label: "test", subtitle: "node",
+            ramBytes: 1 * 1024 * 1024, isZombie: false
+        )
+        let slow = SlowPortScanner(delay: 0.3, result: [item])
+        let store = PortStore(scanner: slow)
+
+        store.startScanning(interval: 10)
+        store.stopScanning()
+
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertTrue(store.listeners.isEmpty)
+    }
+
+    @MainActor
+    func testProcessCountAndTotalRAMDeduped() async throws {
+        let items = [
+            PortItem(port: 3000, address: "127.0.0.1", pid: 100, processName: "node", kind: .node, label: "a", subtitle: "", ramBytes: 100, isZombie: false),
+            PortItem(port: 3000, address: "[::1]", pid: 100, processName: "node", kind: .node, label: "a", subtitle: "", ramBytes: 100, isZombie: false),
+            PortItem(port: 4000, address: "127.0.0.1", pid: 200, processName: "node", kind: .node, label: "b", subtitle: "", ramBytes: 50, isZombie: false)
+        ]
+        let store = PortStore(scanner: FakePortScanner(results: [items]))
+        store.tick()
+
+        let expectation = expectation(description: "publish")
+        let cancellable = store.$listeners
+            .dropFirst()
+            .sink { _ in expectation.fulfill() }
+        await fulfillment(of: [expectation], timeout: 1.0)
+        cancellable.cancel()
+
+        XCTAssertEqual(store.processCount, 2)
+        XCTAssertEqual(store.totalRAM, 150)
     }
 }
 
@@ -269,6 +433,27 @@ private struct StubProcessInfoProvider: ProcessInfoProvider {
                 parentPID: 800,
                 startedAt: referenceDate
             )
+        case 22222:
+            return ProcessMetadata(
+                executablePath: "/Users/dev/Codebases/myshop/node_modules/.bin/node",
+                ramBytes: 96 * 1024 * 1024,
+                parentPID: 600,
+                startedAt: referenceDate
+            )
+        case 77777:
+            return ProcessMetadata(
+                executablePath: "/opt/homebrew/opt/postgresql@16/bin/postgres",
+                ramBytes: 32 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
+        case 88888:
+            return ProcessMetadata(
+                executablePath: "/usr/bin/python3",
+                ramBytes: 8 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
         default:
             return ProcessMetadata()
         }
@@ -290,10 +475,47 @@ private final class SlowPortScanner: PortScanner, @unchecked Sendable {
         self.result = result
     }
 
-    func scan() throws -> [PortItem] {
+    func scan() async throws -> [PortItem] {
         lock.withLock { _invocations += 1 }
-        Thread.sleep(forTimeInterval: delay)
+        try await Task.sleep(for: .seconds(delay))
         return result
+    }
+}
+
+private final class FakePortScanner: PortScanner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [[PortItem]]
+    private var _invocations = 0
+
+    var invocations: Int {
+        lock.withLock { _invocations }
+    }
+
+    init(results: [[PortItem]]) {
+        self.results = results
+    }
+
+    func scan() async throws -> [PortItem] {
+        lock.withLock { _invocations += 1 }
+        guard !results.isEmpty else { return [] }
+        let next = results.removeFirst()
+        return next
+    }
+}
+
+private final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [ProcessRunResult]
+
+    init(results: [ProcessRunResult]) {
+        self.results = results
+    }
+
+    func run(executableURL: URL, arguments: [String], timeout: TimeInterval) async throws -> ProcessRunResult {
+        lock.withLock {
+            guard !results.isEmpty else { return ProcessRunResult(status: 0, output: "") }
+            return results.removeFirst()
+        }
     }
 }
 
@@ -303,4 +525,15 @@ private func fixture(named name: String) throws -> String {
         .deletingLastPathComponent()
         .appendingPathComponent("Fixtures/\(name)")
     return try String(contentsOf: fixtureURL, encoding: .utf8)
+}
+
+private extension XCTestCase {
+    func XCTAssertThrowsError<T>(_ expression: @autoclosure () async throws -> T, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) async {
+        do {
+            _ = try await expression()
+            XCTFail(message(), file: file, line: line)
+        } catch {
+            // expected
+        }
+    }
 }

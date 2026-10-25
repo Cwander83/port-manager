@@ -11,5 +11,5 @@ import Foundation
 /// - Validate container IDs against `^[0-9a-f]{12,64}$` before passing to Docker.
 /// - Prefer direct `kill(2)` over `killall`/`pkill` to avoid accidental broad matches.
 public protocol PortScanner: Sendable {
-    func scan() throws -> [PortItem]
+    func scan() async throws -> [PortItem]
 }

@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.startScanning()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        store.stopScanning()
+    }
+
     @objc private func togglePopover(_ sender: AnyObject?) {
         guard let button = statusItem?.button else { return }
         if popover?.isShown == true {

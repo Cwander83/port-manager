@@ -32,6 +32,10 @@ public struct PortItem: Sendable, Identifiable {
     public let isZombie: Bool
     public let startedAt: Date?
 
+    // Additive fields from parallel kill-engine branch; kept with defaults for clean merge.
+    public let processStartTime: Date?
+    public let localAddress: String?
+
     public init(
         port: Int,
         address: String = "0.0.0.0",
@@ -42,7 +46,9 @@ public struct PortItem: Sendable, Identifiable {
         subtitle: String,
         ramBytes: Int64?,
         isZombie: Bool,
-        startedAt: Date? = nil
+        startedAt: Date? = nil,
+        processStartTime: Date? = nil,
+        localAddress: String? = nil
     ) {
         self.port = port
         self.address = address
@@ -54,6 +60,8 @@ public struct PortItem: Sendable, Identifiable {
         self.ramBytes = ramBytes
         self.isZombie = isZombie
         self.startedAt = startedAt
+        self.processStartTime = processStartTime
+        self.localAddress = localAddress
     }
 
     public func ageLabel(now: Date = Date()) -> String {
@@ -77,4 +85,20 @@ public struct PortItem: Sendable, Identifiable {
     }
 }
 
-extension PortItem: Equatable {}
+extension PortItem: Equatable {
+    public static func == (lhs: PortItem, rhs: PortItem) -> Bool {
+        lhs.id == rhs.id
+            && lhs.pid == rhs.pid
+            && lhs.port == rhs.port
+            && lhs.address == rhs.address
+            && lhs.processName == rhs.processName
+            && lhs.kind == rhs.kind
+            && lhs.label == rhs.label
+            && lhs.subtitle == rhs.subtitle
+            && lhs.ramBytes == rhs.ramBytes
+            && lhs.isZombie == rhs.isZombie
+            && lhs.startedAt == rhs.startedAt
+            && lhs.processStartTime == rhs.processStartTime
+            && lhs.localAddress == rhs.localAddress
+    }
+}

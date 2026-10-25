@@ -3,7 +3,7 @@ import Foundation
 public struct MockPortScanner: PortScanner {
     public init() {}
 
-    public func scan() throws -> [PortItem] {
+    public func scan() async throws -> [PortItem] {
         [
             PortItem(
                 port: 3000,
