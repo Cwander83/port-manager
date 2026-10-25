@@ -19,9 +19,10 @@ public enum ListenerKind: String, CaseIterable, Sendable {
 }
 
 public struct PortItem: Sendable, Identifiable {
-    public var id: String { "\(pid):\(port)" }
+    public var id: String { "\(pid):\(port):\(address)" }
 
     public let port: Int
+    public let address: String
     public let pid: pid_t
     public let processName: String
     public let kind: ListenerKind
@@ -33,6 +34,7 @@ public struct PortItem: Sendable, Identifiable {
 
     public init(
         port: Int,
+        address: String = "0.0.0.0",
         pid: pid_t,
         processName: String,
         kind: ListenerKind,
@@ -43,6 +45,7 @@ public struct PortItem: Sendable, Identifiable {
         startedAt: Date? = nil
     ) {
         self.port = port
+        self.address = address
         self.pid = pid
         self.processName = processName
         self.kind = kind
@@ -73,3 +76,5 @@ public struct PortItem: Sendable, Identifiable {
         }
     }
 }
+
+extension PortItem: Equatable {}

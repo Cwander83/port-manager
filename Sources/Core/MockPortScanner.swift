@@ -7,6 +7,7 @@ public struct MockPortScanner: PortScanner {
         [
             PortItem(
                 port: 3000,
+                address: "127.0.0.1",
                 pid: 12345,
                 processName: "node",
                 kind: .node,
@@ -17,6 +18,7 @@ public struct MockPortScanner: PortScanner {
             ),
             PortItem(
                 port: 5432,
+                address: "127.0.0.1",
                 pid: 23456,
                 processName: "postgres",
                 kind: .brew,
@@ -27,6 +29,7 @@ public struct MockPortScanner: PortScanner {
             ),
             PortItem(
                 port: 8080,
+                address: "0.0.0.0",
                 pid: 34567,
                 processName: "docker",
                 kind: .docker,
@@ -37,6 +40,7 @@ public struct MockPortScanner: PortScanner {
             ),
             PortItem(
                 port: 8081,
+                address: "127.0.0.1",
                 pid: 45678,
                 processName: "node",
                 kind: .node,
@@ -48,6 +52,7 @@ public struct MockPortScanner: PortScanner {
             ),
             PortItem(
                 port: 11434,
+                address: "127.0.0.1",
                 pid: 56789,
                 processName: "ollama",
                 kind: .ollama,
@@ -58,6 +63,7 @@ public struct MockPortScanner: PortScanner {
             ),
             PortItem(
                 port: 5173,
+                address: "127.0.0.1",
                 pid: 67890,
                 processName: "node",
                 kind: .node,

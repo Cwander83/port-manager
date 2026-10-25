@@ -35,25 +35,34 @@ final class PortStore: ObservableObject {
         scanTask = nil
     }
 
+    /// Test-only hook to simulate a timer tick.
+    func tick() {
+        performScan()
+    }
+
     private func performScan() {
-        scanTask?.cancel()
+        guard scanTask == nil else { return }
         let scanner = scanner
         let logger = logger
-        scanTask = Task.detached {
+        scanTask = Task.detached { [weak self] in
             do {
                 logger.debug("Starting port scan")
                 let items = try scanner.scan().sortedForDisplay()
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
+                    guard !Task.isCancelled else { return }
                     self?.listeners = items
                     self?.lastScanAt = Date()
                     self?.error = nil
+                    self?.scanTask = nil
                 }
             } catch {
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
+                    guard !Task.isCancelled else { return }
                     self?.error = error
                     logger.error("Port scan failed: \(error.localizedDescription)")
+                    self?.scanTask = nil
                 }
             }
         }

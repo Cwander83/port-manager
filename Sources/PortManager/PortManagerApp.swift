@@ -18,7 +18,7 @@ struct PortManagerApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private let store = PortStore()
+    private let store = PortStore(scanner: LsofPortScanner())
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
