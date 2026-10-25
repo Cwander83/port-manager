@@ -1,7 +1,7 @@
 COMMAND     PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
-node      12345 chriswander   23u  IPv4 0x0000000000000001      0t0  TCP 127.0.0.1:3000 (LISTEN)
-postgres  23456 chriswander    5u  IPv4 0x0000000000000002      0t0  TCP 127.0.0.1:5432 (LISTEN)
-redis-ser 34567 chriswander    6u  IPv4 0x0000000000000003      0t0  TCP 127.0.0.1:6379 (LISTEN)
-ollama    45678 chriswander    8u  IPv4 0x0000000000000004      0t0  TCP 127.0.0.1:11434 (LISTEN)
-node      99999 chriswander   24u  IPv4 0x0000000000000005      0t0  TCP 127.0.0.1:8081 (LISTEN)
-Python    56789 chriswander   10u  IPv4 0x0000000000000006      0t0  TCP 0.0.0.0:5000 (LISTEN)
+node      12345 user       23u  IPv4 0x0000000000000001      0t0  TCP 127.0.0.1:3000 (LISTEN)
+postgres  23456 user        5u  IPv4 0x0000000000000002      0t0  TCP 127.0.0.1:5432 (LISTEN)
+redis-ser 34567 user        6u  IPv4 0x0000000000000003      0t0  TCP 127.0.0.1:6379 (LISTEN)
+ollama    45678 user        8u  IPv4 0x0000000000000004      0t0  TCP 127.0.0.1:11434 (LISTEN)
+node      99999 user       24u  IPv4 0x0000000000000005      0t0  TCP 127.0.0.1:8081 (LISTEN)
+Python    56789 user       10u  IPv4 0x0000000000000006      0t0  TCP 0.0.0.0:5000 (LISTEN)

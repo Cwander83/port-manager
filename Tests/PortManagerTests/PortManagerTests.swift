@@ -243,6 +243,31 @@ final class PortManagerTests: XCTestCase {
         await XCTAssertThrowsErrorAsync(try await scanner.scan())
     }
 
+    // MARK: - Real ProcessRunner
+
+    func testRealProcessRunnerEcho() async throws {
+        let runner = RealProcessRunner()
+        let result = try await runner.run(
+            executableURL: URL(fileURLWithPath: "/bin/echo"),
+            arguments: ["hi"],
+            timeout: 5.0
+        )
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.output, "hi\n")
+        XCTAssertEqual(result.stderr, "")
+        XCTAssertFalse(result.timedOut)
+    }
+
+    func testRealProcessRunnerTimesOut() async throws {
+        let runner = RealProcessRunner()
+        let result = try await runner.run(
+            executableURL: URL(fileURLWithPath: "/bin/sleep"),
+            arguments: ["5"],
+            timeout: 0.2
+        )
+        XCTAssertTrue(result.timedOut)
+    }
+
     func testLsofWildcardDualStackCollapsesToOneRow() throws {
         let date = Date(timeIntervalSince1970: 4_000_000)
         let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
@@ -379,26 +404,18 @@ final class PortManagerTests: XCTestCase {
 
     @MainActor
     func testStaleScanTaskDoesNotClobberNewerResult() async throws {
-        let oldItem = PortItem(
-            port: 3000, address: "127.0.0.1", pid: 1, processName: "a",
-            kind: .node, label: "old", subtitle: "", ramBytes: 1, isZombie: false
+        let item = PortItem(
+            port: 4000, address: "127.0.0.1", pid: 777, processName: "node",
+            kind: .node, label: "test", subtitle: "", ramBytes: 1, isZombie: false
         )
-        let newItem = PortItem(
-            port: 4000, address: "127.0.0.1", pid: 2, processName: "b",
-            kind: .node, label: "new", subtitle: "", ramBytes: 1, isZombie: false
-        )
+        let slow = SlowPortScanner(delay: 0.05, result: [item])
+        let store = PortStore(scanner: slow)
 
-        let slowThenFast = FakePortScannerWithDelays(scans: [
-            (delay: 0.3, result: [oldItem]),
-            (delay: 0.05, result: [newItem])
-        ])
-        let store = PortStore(scanner: slowThenFast)
-
-        store.tick() // old
-        try await Task.sleep(for: .milliseconds(20))
-        // Cancel the old in-flight scan and bump generation so a new tick can run.
-        store.stopScanning()
-        store.tick() // new finishes first
+        store.tick() // scan 1 in-flight
+        try await Task.sleep(for: .milliseconds(10))
+        store.tick() // must drop because scan 1 still running
+        XCTAssertEqual(slow.invocations, 1)
+        XCTAssertNotNil(store.scanTask)
 
         let expectation = expectation(description: "publish")
         let cancellable = store.$listeners
@@ -407,12 +424,12 @@ final class PortManagerTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 1.0)
         cancellable.cancel()
 
-        XCTAssertEqual(store.listeners, [newItem])
+        XCTAssertEqual(store.listeners, [item])
 
-        // The old scan was generation 1; store is now generation 2. Even if the old
-        // task completes after the new one, generation gating keeps it from publishing.
-        try await Task.sleep(for: .milliseconds(350))
-        XCTAssertEqual(store.listeners, [newItem])
+        try await Task.sleep(for: .milliseconds(20))
+        store.tick() // scan 2 should now run after scan 1 finished
+        try await Task.sleep(for: .milliseconds(70))
+        XCTAssertEqual(slow.invocations, 2)
     }
 
     @MainActor
@@ -607,30 +624,6 @@ private final class FakePortScanner: PortScanner, @unchecked Sendable {
         return next
     }
 }
-
-private final class FakePortScannerWithDelays: PortScanner, @unchecked Sendable {
-    private let lock = NSLock()
-    private var scans: [(delay: TimeInterval, result: [PortItem])]
-    private var _invocations = 0
-
-    var invocations: Int {
-        lock.withLock { _invocations }
-    }
-
-    init(scans: [(delay: TimeInterval, result: [PortItem])]) {
-        self.scans = scans
-    }
-
-    func scan() async throws -> [PortItem] {
-        lock.withLock { _invocations += 1 }
-        guard !scans.isEmpty else { return [] }
-        let next = scans.removeFirst()
-        try await Task.sleep(for: .seconds(next.delay))
-        return next.result
-    }
-}
-
-
 
 private final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
     private let lock = NSLock()

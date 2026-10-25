@@ -87,5 +87,5 @@ public struct PortItem: Sendable, Identifiable {
 
 /// Semantics for additive fields (mirrors kill-engine branch usage):
 /// - `processStartTime`: process `pbi_start_tvsec` (macOS `proc_pidinfo`), i.e. when the PID launched.
-/// - `localAddress`: raw lsof `NAME` column as parsed (e.g. `*:8080`, `[::1]:5432`, `127.0.0.1:3000`).
+/// - `localAddress`: raw lsof `NAME` column host part only (e.g. `*`, `[::1]`, `127.0.0.1`).
 extension PortItem: Equatable {}
