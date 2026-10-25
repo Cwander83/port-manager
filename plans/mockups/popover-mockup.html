@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Port Manager — UI Mockups</title>
+<style>
+  :root {
+    --bg: #1c1c1e;
+    --panel: rgba(40, 40, 44, 0.92);
+    --panel-blur: rgba(50, 50, 55, 0.85);
+    --divider: rgba(255,255,255,0.09);
+    --text: #f2f2f7;
+    --text-dim: #98989f;
+    --text-faint: #6e6e73;
+    --accent: #4f9cff;
+    --green: #32d74b;
+    --yellow: #ffd60a;
+    --red: #ff453a;
+    --orange: #ff9f0a;
+    --purple: #bf5af2;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #2b2b2e;
+    background-image: radial-gradient(circle at 20% 0%, #3a3a40 0%, transparent 50%),
+                      radial-gradient(circle at 80% 100%, #35383e 0%, transparent 50%);
+    font-family: var(--sans);
+    color: var(--text);
+    padding: 48px 40px 80px;
+    min-height: 100vh;
+  }
+  .page-title { text-align: center; margin-bottom: 8px; font-size: 26px; font-weight: 700; }
+  .page-sub { text-align: center; color: var(--text-dim); font-size: 13px; margin-bottom: 56px; }
+
+  .artboard-wrap { display: flex; flex-wrap: wrap; gap: 64px 56px; justify-content: center; }
+  .artboard { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .artboard-label { font-size: 12px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+  .artboard-note { font-size: 11.5px; color: var(--text-faint); max-width: 300px; text-align: center; line-height: 1.5; }
+
+  /* ---------- menu bar strip ---------- */
+  .menubar-strip {
+    width: 560px; height: 28px;
+    background: linear-gradient(#3a3a3c 0%, #303032 100%);
+    backdrop-filter: blur(20px);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 16px; padding: 0 12px;
+    box-shadow: 0 2px 24px rgba(0,0,0,0.5);
+    font-size: 12.5px;
+  }
+  .menubar-strip .item { display: flex; align-items: center; gap: 5px; color: #e8e8ea; }
+  .menubar-strip .active {
+    background: #4f9cff; color: #fff; border-radius: 4px; padding: 1px 6px; margin: 0 -4px;
+  }
+
+  /* ---------- popover ---------- */
+  .popover {
+    width: 340px;
+    background: var(--panel);
+    backdrop-filter: blur(30px) saturate(1.4);
+    border: 0.5px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.4);
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .pop-header {
+    padding: 12px 14px 10px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1px solid var(--divider);
+  }
+  .pop-header .title { font-weight: 700; font-size: 13.5px; letter-spacing: 0.02em; }
+  .pop-header .meta { color: var(--text-dim); font-size: 11.5px; }
+  .pop-summary {
+    padding: 8px 14px;
+    color: var(--text-dim); font-size: 11.5px;
+    display: flex; justify-content: space-between;
+    border-bottom: 1px solid var(--divider);
+    background: rgba(255,255,255,0.03);
+  }
+  .pop-summary .ram { color: var(--orange); font-weight: 600; }
+
+  .row {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 12px;
+    border-bottom: 0.5px solid var(--divider);
+    position: relative;
+  }
+  .row:last-of-type { border-bottom: none; }
+  .row .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot.active { background: var(--green); box-shadow: 0 0 6px rgba(50,215,75,0.5); }
+  .dot.docker { background: var(--accent); }
+  .dot.ollama { background: var(--purple); }
+  .dot.brew { background: var(--yellow); }
+  .dot.zombie { background: var(--red); box-shadow: 0 0 6px rgba(255,69,58,0.6); }
+  .row .port { font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 600; width: 58px; flex-shrink: 0; }
+  .row .info { flex: 1; min-width: 0; }
+  .row .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .name .sub { color: var(--text-dim); font-weight: 400; }
+  .row .name .warn { color: var(--red); font-weight: 700; }
+  .row .ram { color: var(--text-dim); font-size: 11.5px; width: 52px; text-align: right; flex-shrink: 0; font-family: var(--mono); }
+  .kill-btn {
+    font-size: 10.5px; font-weight: 600; color: var(--text-dim);
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 5px;
+    padding: 2.5px 8px; background: rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .kill-btn.danger { color: #ffb3ae; border-color: rgba(255,69,58,0.5); background: rgba(255,69,58,0.12); }
+  .row.zombie-row { background: rgba(255,69,58,0.07); }
+  .row.zombie-row .port { color: var(--red); }
+
+  .pop-footer {
+    border-top: 1px solid var(--divider);
+    padding: 8px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    background: rgba(255,255,255,0.03);
+  }
+  .free-port { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .free-port .port-num { font-family: var(--mono); color: var(--green); font-weight: 700; }
+  .copy-chip {
+    font-size: 10.5px; font-weight: 600; color: var(--text-dim);
+    border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 2px 7px;
+  }
+  .pop-actions { display: flex; gap: 14px; font-size: 12px; color: var(--text-dim); padding: 6px 12px 8px; background: rgba(255,255,255,0.03); border-top: 1px solid var(--divider); }
+
+  /* ---------- detail sheet ---------- */
+  .detail-card { width: 300px; }
+  .detail-card .pop-header .title { font-size: 12.5px; }
+  .kv { display: flex; justify-content: space-between; padding: 7px 14px; border-bottom: 0.5px solid var(--divider); font-size: 12px; }
+  .kv .k { color: var(--text-dim); }
+  .kv .v { font-family: var(--mono); font-size: 11px; text-align: right; color: var(--text); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-actions { display: flex; gap: 8px; padding: 12px 14px; }
+  .btn {
+    flex: 1; text-align: center; font-size: 12px; font-weight: 600;
+    padding: 6px 0; border-radius: 7px;
+  }
+  .btn.primary { background: var(--red); color: #fff; }
+  .btn.secondary { background: rgba(255,255,255,0.1); color: var(--text); border: 1px solid rgba(255,255,255,0.15); }
+
+  /* ---------- confirm dialog ---------- */
+  .dialog { width: 280px; text-align: center; padding-bottom: 0; }
+  .dialog .icon { font-size: 34px; margin: 20px 0 10px; }
+  .dialog .q { font-size: 13px; font-weight: 600; padding: 0 16px; }
+  .dialog .sub { font-size: 11.5px; color: var(--text-dim); padding: 6px 18px 14px; line-height: 1.45; }
+  .dialog .row-btns { display: flex; border-top: 0.5px solid var(--divider); }
+  .dialog .row-btns .btn { border-radius: 0; border: none; flex: 1; padding: 9px 0; font-size: 12.5px; }
+  .dialog .row-btns .btn + .btn { border-left: 0.5px solid var(--divider); }
+  .dialog .btn.cancel { background: rgba(255,255,255,0.05); color: var(--text); }
+  .dialog .btn.confirm { background: var(--red); color: #fff; font-weight: 700; }
+
+  /* ---------- prefs ---------- */
+  .pref-card { width: 320px; }
+  .pref-sec { padding: 10px 14px 4px; font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .pref-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; font-size: 12.5px; border-bottom: 0.5px solid var(--divider); }
+  .pref-row:last-child { border-bottom: none; }
+  .seg { display: flex; background: rgba(255,255,255,0.07); border-radius: 6px; padding: 1.5px; }
+  .seg span { font-size: 10.5px; padding: 2px 8px; border-radius: 5px; color: var(--text-dim); }
+  .seg span.on { background: #5a5a5f; color: var(--text); font-weight: 600; }
+  .switch { width: 34px; height: 20px; border-radius: 10px; background: var(--green); position: relative; }
+  .switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; }
+  .switch.off { background: rgba(255,255,255,0.15); }
+  .switch.off::after { left: 2px; right: auto; }
+
+  /* ---------- light variant ---------- */
+  .light {
+    background: rgba(246, 246, 248, 0.94);
+    border-color: rgba(0,0,0,0.12);
+  }
+  .light, .light .pop-header .title, .light .row .name { color: #1d1d1f; }
+  .light .pop-header .meta, .light .row .name .sub, .light .row .ram,
+  .light .pop-summary, .light .pop-actions, .light .free-port, .light .kv .k { color: #6e6e73; }
+  .light .pop-summary, .light .pop-footer, .light .pop-actions { background: rgba(0,0,0,0.03); }
+  .light .row, .light .pop-header, .light .kv, .light .pop-actions { border-color: rgba(0,0,0,0.08); }
+  .light .kill-btn { color: #6e6e73; border-color: rgba(0,0,0,0.15); background: rgba(0,0,0,0.04); }
+  .light .row.zombie-row { background: rgba(255,69,58,0.08); }
+  .light .kv .v { color: #1d1d1f; }
+  .light .seg { background: rgba(0,0,0,0.07); }
+  .light .seg span.on { background: #fff; }
+  .light .switch { background: #34c759; }
+  .light .switch.off { background: rgba(0,0,0,0.16); }
+
+  /* annotation badges */
+  .anno { position: absolute; }
+</style>
+</head>
+<body>
+
+<div class="page-title">Port Manager — UI Mockups</div>
+<div class="page-sub">v0.1 draft · dark-mode default · macOS 14+ popover patterns (gravity-bar family style) · Oct 2026</div>
+
+<div class="artboard-wrap">
+
+  <!-- ============ 1. MENU BAR STATE ============ -->
+  <div class="artboard">
+    <div class="artboard-label">1 · Menu Bar Item</div>
+    <div class="menubar-strip">
+      <div class="item">🔋 100%</div>
+      <div class="item">Mon Oct 24 10:42&nbsp;AM</div>
+      <div class="item active">🐙 4</div>
+    </div>
+    <div class="artboard-note">
+      Status item = icon + live listener count. Click opens popover. Count badge doubles as v2 notification surface. Icon placeholder (see naming open question).
+    </div>
+  </div>
+
+  <!-- ============ 2. MAIN POPOVER ============ -->
+  <div class="artboard">
+    <div class="artboard-label">2 · Main Popover — Home State</div>
+    <div class="popover">
+      <div class="pop-header">
+        <span class="title">Port Manager</span>
+        <span class="meta">⟳ 2s ago</span>
+      </div>
+      <div class="pop-summary">
+        <span>6 listeners</span>
+        <span class="ram">4.1 GB RAM held</span>
+      </div>
+
+      <div class="row">
+        <span class="dot active"></span>
+        <span class="port">:3000</span>
+        <span class="info"><span class="name">myshop <span class="sub">· next dev</span></span></span>
+        <span class="ram">128 MB</span>
+        <span class="kill-btn">kill</span>
+      </div>
+      <div class="row">
+        <span class="dot brew"></span>
+        <span class="port">:5432</span>
+        <span class="info"><span class="name">postgres <span class="sub">· brew service</span></span></span>
+        <span class="ram">64 MB</span>
+        <span class="kill-btn">stop</span>
+      </div>
+      <div class="row">
+        <span class="dot docker"></span>
+        <span class="port">:8080</span>
+        <span class="info"><span class="name">myapp-container <span class="sub">· docker</span></span></span>
+        <span class="ram">210 MB</span>
+        <span class="kill-btn">stop</span>
+      </div>
+      <div class="row zombie-row">
+        <span class="dot zombie"></span>
+        <span class="port">:8081</span>
+        <span class="info"><span class="name">node <span class="warn">· orphaned · 3d</span></span></span>
+        <span class="ram">0.9 MB</span>
+        <span class="kill-btn danger">kill</span>
+      </div>
+      <div class="row">
+        <span class="dot ollama"></span>
+        <span class="port">:11434</span>
+        <span class="info"><span class="name">ollama <span class="sub">· llama3:70b loaded</span></span></span>
+        <span class="ram">4.2 GB</span>
+        <span class="kill-btn">unload</span>
+      </div>
+      <div class="row">
+        <span class="dot active"></span>
+        <span class="port">:5173</span>
+        <span class="info"><span class="name">portfolio <span class="sub">· vite</span></span></span>
+        <span class="ram">86 MB</span>
+        <span class="kill-btn">kill</span>
+      </div>
+
+      <div class="pop-footer">
+        <span class="free-port">Next free port <span class="port-num">3001</span></span>
+        <span class="copy-chip">⧉ copy</span>
+      </div>
+      <div class="pop-actions">
+        <span>Preferences…</span>
+        <span>Quit Port Manager ⌘Q</span>
+      </div>
+    </div>
+    <div class="artboard-note">
+      Rows sorted by port. Button label changes per kill rule: kill / stop / unload. Zombie rows tinted red, sorted to bottom. RAM column right-aligned mono. ⌥-click button = skip confirm.
+    </div>
+  </div>
+
+  <!-- ============ 3. ROW DETAIL ============ -->
+  <div class="artboard">
+    <div class="artboard-label">3 · Row Detail (click row)</div>
+    <div class="popover detail-card">
+      <div class="pop-header">
+        <span class="title">:8080 · myapp-container</span>
+        <span class="meta">docker</span>
+      </div>
+      <div class="kv"><span class="k">Container</span><span class="v">myapp-container</span></div>
+      <div class="kv"><span class="k">Image</span><span class="v">myapp-api:latest</span></div>
+      <div class="kv"><span class="k">Ports</span><span class="v">8080 → 8080/tcp</span></div>
+      <div class="kv"><span class="k">Started</span><span class="v">2d 4h ago</span></div>
+      <div class="kv"><span class="k">CPU</span><span class="v">2.1%</span></div>
+      <div class="kv"><span class="k">RAM</span><span class="v">210 MB</span></div>
+      <div class="detail-actions">
+        <span class="btn secondary">docker logs</span>
+        <span class="btn primary">docker stop</span>
+      </div>
+    </div>
+    <div class="artboard-note">
+      Detail per type: docker shows container/image; node shows cwd + cmdline; ollama shows loaded models. "docker logs" opens terminal — stretch goal, not v1.
+    </div>
+  </div>
+
+  <!-- ============ 4. KILL CONFIRM ============ -->
+  <div class="artboard">
+    <div class="artboard-label">4 · Kill Confirm (default)</div>
+    <div class="popover dialog">
+      <div class="icon">🛑</div>
+      <div class="q">Stop postgres on :5432?</div>
+      <div class="sub">brew services stop postgresql@16<br>Started 5d ago · 64 MB</div>
+      <div class="row-btns">
+        <span class="btn cancel">Cancel</span>
+        <span class="btn confirm">Stop</span>
+      </div>
+    </div>
+    <div class="artboard-note">
+      Shows the exact command to be run — transparency builds trust, teaches users the underlying commands. ⌥-click skips this dialog (power-user path).
+    </div>
+  </div>
+
+  <!-- ============ 5. PREFERENCES ============ -->
+  <div class="artboard">
+    <div class="artboard-label">5 · Preferences</div>
+    <div class="popover pref-card">
+      <div class="pop-header"><span class="title">Preferences</span></div>
+      <div class="pref-sec">Scanning</div>
+      <div class="pref-row"><span>Refresh interval</span>
+        <span class="seg"><span>1s</span><span class="on">2s</span><span>5s</span></span>
+      </div>
+      <div class="pref-row"><span>Group by project</span><span class="switch"></span></div>
+      <div class="pref-sec">Detection</div>
+      <div class="pref-row"><span>Zombie threshold</span>
+        <span class="seg"><span>12h</span><span class="on">1d</span><span>3d</span></span>
+      </div>
+      <div class="pref-row"><span>Hide system listeners</span><span class="switch"></span></div>
+      <div class="pref-row"><span>Ignore-list (7 hidden)</span><span style="color:var(--accent);font-size:12px;">Edit…</span></div>
+      <div class="pref-sec">App</div>
+      <div class="pref-row"><span>Launch at login</span><span class="switch off"></span></div>
+      <div class="pref-row"><span>Menu bar count badge</span><span class="switch"></span></div>
+    </div>
+    <div class="artboard-note">
+      Minimal prefs. Ignore-list pre-seeded with mDNSResponder, rapportd, etc. Everything lives in one scroll-free card — no settings window for v1.
+    </div>
+  </div>
+
+  <!-- ============ 6. LIGHT MODE ============ -->
+  <div class="artboard">
+    <div class="artboard-label">6 · Light Mode Variant</div>
+    <div class="popover light">
+      <div class="pop-header">
+        <span class="title">Port Manager</span>
+        <span class="meta">⟳ 2s ago</span>
+      </div>
+      <div class="pop-summary">
+        <span>6 listeners</span>
+        <span class="ram">4.1 GB RAM held</span>
+      </div>
+      <div class="row">
+        <span class="dot active"></span>
+        <span class="port">:3000</span>
+        <span class="info"><span class="name">myshop <span class="sub">· next dev</span></span></span>
+        <span class="ram">128 MB</span>
+        <span class="kill-btn">kill</span>
+      </div>
+      <div class="row zombie-row">
+        <span class="dot zombie"></span>
+        <span class="port">:8081</span>
+        <span class="info"><span class="name">node <span class="warn">· orphaned · 3d</span></span></span>
+        <span class="ram">0.9 MB</span>
+        <span class="kill-btn">kill</span>
+      </div>
+      <div class="row">
+        <span class="dot ollama"></span>
+        <span class="port">:11434</span>
+        <span class="info"><span class="name">ollama <span class="sub">· llama3:70b loaded</span></span></span>
+        <span class="ram">4.2 GB</span>
+        <span class="kill-btn">unload</span>
+      </div>
+      <div class="pop-footer">
+        <span class="free-port">Next free port <span class="port-num">3001</span></span>
+        <span class="copy-chip">⧉ copy</span>
+      </div>
+      <div class="pop-actions">
+        <span>Preferences…</span>
+        <span>Quit Port Manager ⌘Q</span>
+      </div>
+    </div>
+    <div class="artboard-note">
+      Follows system appearance automatically. Same layout — only tokens change. Validates palette works both ways before SwiftUI implementation.
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

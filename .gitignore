@@ -1,0 +1,21 @@
+# Xcode / SPM
+.DS_Store
+.build/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+.swiftpm/
+
+# Build artifacts
+build/
+dist/
+*.dmg
+*.app
+
+# Secrets — never commit
+.env
+*.p12
+*.mobileprovision
+
+# Release signing material stays in scripts/ templates only
