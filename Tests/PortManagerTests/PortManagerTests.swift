@@ -207,20 +207,40 @@ final class PortManagerTests: XCTestCase {
     }
 
     func testLsofExitOneWithEmptyOutputReturnsEmpty() async throws {
+        // FakeProcessRunner default stderr is nil; lsof status 1 + empty stdout => no listeners.
         let runner = FakeProcessRunner(results: [
-            ProcessRunResult(status: 1, output: "")
+            ProcessRunResult(status: 1, output: "", stderr: nil)
         ])
         let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
         let items = try await scanner.scan()
         XCTAssertTrue(items.isEmpty)
     }
 
-    func testLsofExitOneWithOutputThrows() async throws {
+
+    func testLsofNonZeroWithOutputParsesRows() async throws {
         let runner = FakeProcessRunner(results: [
-            ProcessRunResult(status: 1, output: "COMMAND PID USER...")
+            ProcessRunResult(status: 1, output: "COMMAND PID USER...\nnode 123 user 1u IPv4 0x0 0t0 TCP 127.0.0.1:3000 (LISTEN)")
         ])
         let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
-        await XCTAssertThrowsError(try await scanner.scan())
+        let items = try await scanner.scan()
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.port, 3000)
+    }
+
+    func testLsofNonZeroWithEmptyOutputThrows() async throws {
+        let runner = FakeProcessRunner(results: [
+            ProcessRunResult(status: 2, output: "", stderr: "boom")
+        ])
+        let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
+        await XCTAssertThrowsErrorAsync(try await scanner.scan())
+    }
+
+    func testLsofTimedOutThrows() async throws {
+        let runner = TimingFakeProcessRunner(scans: [
+            (delay: 0.05, result: .success(ProcessRunResult(status: 0, output: "", timedOut: true)))
+        ])
+        let scanner = LsofPortScanner(runner: runner, provider: StubProcessInfoProvider(referenceDate: Date()))
+        await XCTAssertThrowsErrorAsync(try await scanner.scan())
     }
 
     func testLsofWildcardDualStackCollapsesToOneRow() throws {
@@ -235,16 +255,27 @@ final class PortManagerTests: XCTestCase {
         XCTAssertEqual(items.first?.address, "*")
     }
 
-    func testLsofRealFixtureParsesWithoutCrashing() async throws {
+    func testLsofRealFixtureParsesWithoutCrashing() throws {
+        let date = Date(timeIntervalSince1970: 7_000_000)
         let output = try fixture(named: "lsof-real-2026-10-25.txt")
-        let scanner = LsofPortScanner()
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
         let items = scanner.parse(output)
-        XCTAssertFalse(items.isEmpty)
+        XCTAssertEqual(items.count, 34)
+
+        // No (pid, port, address) duplicates; lsof address rows are unique in the output.
+        let ids = items.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count)
+
         // Wildcard dual-stack rows collapse to a single `*` address row per (pid, port).
         let wildcardRows = items.filter { $0.address == "*" }
         for row in wildcardRows {
             let matching = items.filter { $0.pid == row.pid && $0.port == row.port }
             XCTAssertEqual(matching.count, 1, "wildcard row for pid \(row.pid) port \(row.port) should be unique")
+        }
+
+        // No .other listener should be flagged zombie just because it's launchd-parented.
+        for item in items where item.isZombie {
+            XCTAssertEqual(item.kind, .node, "only node listeners should be flagged zombie, got \(item.kind) for \(item.processName)")
         }
     }
 
@@ -259,7 +290,7 @@ final class PortManagerTests: XCTestCase {
         XCTAssertEqual(items.first?.isZombie, false)
     }
 
-    func testOtherUnderLaunchdIsZombie() throws {
+    func testOtherUnderLaunchdIsNotZombie() throws {
         let date = Date(timeIntervalSince1970: 6_000_000)
         let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
         let output = try fixture(named: "lsof-launchd-python.txt")
@@ -267,7 +298,29 @@ final class PortManagerTests: XCTestCase {
 
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items.first?.kind, .other)
+        XCTAssertEqual(items.first?.isZombie, false)
+    }
+
+    func testNodeUnderLaunchdIsZombie() throws {
+        let date = Date(timeIntervalSince1970: 6_100_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = try fixture(named: "lsof-launchd-node.txt")
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .node)
         XCTAssertEqual(items.first?.isZombie, true)
+    }
+
+    func testIntelHomebrewPostgresqlDetectedAsBrew() throws {
+        let date = Date(timeIntervalSince1970: 6_200_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = try fixture(named: "lsof-intel-postgres.txt")
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .brew)
+        XCTAssertEqual(items.first?.isZombie, false)
     }
 
     // MARK: - PortStore scan scheduling (N1)
@@ -322,6 +375,44 @@ final class PortManagerTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(fast.invocations, 2)
+    }
+
+    @MainActor
+    func testStaleScanTaskDoesNotClobberNewerResult() async throws {
+        let oldItem = PortItem(
+            port: 3000, address: "127.0.0.1", pid: 1, processName: "a",
+            kind: .node, label: "old", subtitle: "", ramBytes: 1, isZombie: false
+        )
+        let newItem = PortItem(
+            port: 4000, address: "127.0.0.1", pid: 2, processName: "b",
+            kind: .node, label: "new", subtitle: "", ramBytes: 1, isZombie: false
+        )
+
+        let slowThenFast = FakePortScannerWithDelays(scans: [
+            (delay: 0.3, result: [oldItem]),
+            (delay: 0.05, result: [newItem])
+        ])
+        let store = PortStore(scanner: slowThenFast)
+
+        store.tick() // old
+        try await Task.sleep(for: .milliseconds(20))
+        // Cancel the old in-flight scan and bump generation so a new tick can run.
+        store.stopScanning()
+        store.tick() // new finishes first
+
+        let expectation = expectation(description: "publish")
+        let cancellable = store.$listeners
+            .dropFirst()
+            .sink { _ in expectation.fulfill() }
+        await fulfillment(of: [expectation], timeout: 1.0)
+        cancellable.cancel()
+
+        XCTAssertEqual(store.listeners, [newItem])
+
+        // The old scan was generation 1; store is now generation 2. Even if the old
+        // task completes after the new one, generation gating keeps it from publishing.
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(store.listeners, [newItem])
     }
 
     @MainActor
@@ -454,6 +545,20 @@ private struct StubProcessInfoProvider: ProcessInfoProvider {
                 parentPID: 1,
                 startedAt: referenceDate
             )
+        case 66666:
+            return ProcessMetadata(
+                executablePath: "/usr/local/bin/node",
+                ramBytes: 16 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
+        case 55555:
+            return ProcessMetadata(
+                executablePath: "/usr/local/opt/postgresql@16/bin/postgres",
+                ramBytes: 32 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
         default:
             return ProcessMetadata()
         }
@@ -503,6 +608,30 @@ private final class FakePortScanner: PortScanner, @unchecked Sendable {
     }
 }
 
+private final class FakePortScannerWithDelays: PortScanner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var scans: [(delay: TimeInterval, result: [PortItem])]
+    private var _invocations = 0
+
+    var invocations: Int {
+        lock.withLock { _invocations }
+    }
+
+    init(scans: [(delay: TimeInterval, result: [PortItem])]) {
+        self.scans = scans
+    }
+
+    func scan() async throws -> [PortItem] {
+        lock.withLock { _invocations += 1 }
+        guard !scans.isEmpty else { return [] }
+        let next = scans.removeFirst()
+        try await Task.sleep(for: .seconds(next.delay))
+        return next.result
+    }
+}
+
+
+
 private final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
     private let lock = NSLock()
     private var results: [ProcessRunResult]
@@ -519,6 +648,28 @@ private final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
     }
 }
 
+private final class TimingFakeProcessRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var scans: [(delay: TimeInterval, result: Result<ProcessRunResult, Error>)]
+    private var _invocations = 0
+
+    var invocations: Int {
+        lock.withLock { _invocations }
+    }
+
+    init(scans: [(delay: TimeInterval, result: Result<ProcessRunResult, Error>)]) {
+        self.scans = scans
+    }
+
+    func run(executableURL: URL, arguments: [String], timeout: TimeInterval) async throws -> ProcessRunResult {
+        lock.withLock { _invocations += 1 }
+        guard !scans.isEmpty else { return ProcessRunResult(status: 0, output: "") }
+        let next = scans.removeFirst()
+        try await Task.sleep(for: .seconds(next.delay))
+        return try next.result.get()
+    }
+}
+
 private func fixture(named name: String) throws -> String {
     let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     let fixtureURL = testsDir
@@ -528,7 +679,7 @@ private func fixture(named name: String) throws -> String {
 }
 
 private extension XCTestCase {
-    func XCTAssertThrowsError<T>(_ expression: @autoclosure () async throws -> T, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) async {
+    func XCTAssertThrowsErrorAsync<T>(_ expression: @autoclosure () async throws -> T, _ message: @autoclosure () -> String = "", file: StaticString = #filePath, line: UInt = #line) async {
         do {
             _ = try await expression()
             XCTFail(message(), file: file, line: line)

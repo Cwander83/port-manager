@@ -17,7 +17,8 @@ final class PortStore: ObservableObject {
     private let scanner: PortScanner
     private let logger = Logger(subsystem: "com.cwander83.portmanager", category: "PortStore")
     private var timer: Timer?
-    private var scanTask: Task<Void, Never>?
+    private(set) var scanTask: Task<Void, Never>?
+    private var scanGeneration: Int = 0
     private var stats: ListenerStats = ListenerStats(processCount: 0, totalRAM: 0)
 
     init(scanner: PortScanner = MockPortScanner()) {
@@ -37,6 +38,7 @@ final class PortStore: ObservableObject {
     func stopScanning() {
         timer?.invalidate()
         timer = nil
+        scanGeneration += 1
         scanTask?.cancel()
         scanTask = nil
     }
@@ -48,6 +50,8 @@ final class PortStore: ObservableObject {
 
     private func performScan() {
         guard scanTask == nil else { return }
+        scanGeneration += 1
+        let generation = scanGeneration
         let scanner = scanner
         let logger = logger
         scanTask = Task.detached { [weak self] in
@@ -57,26 +61,28 @@ final class PortStore: ObservableObject {
                 let stats = items.listenerStats()
                 await MainActor.run { [weak self] in
                     guard let self else { return }
-                    guard !Task.isCancelled else {
-                        self.scanTask = nil
-                        return
+                    defer {
+                        if self.scanGeneration == generation {
+                            self.scanTask = nil
+                        }
                     }
+                    guard self.scanGeneration == generation else { return }
                     self.listeners = items
                     self.stats = stats
                     self.lastScanAt = Date()
                     self.error = nil
-                    self.scanTask = nil
                 }
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
-                    guard !Task.isCancelled else {
-                        self.scanTask = nil
-                        return
+                    defer {
+                        if self.scanGeneration == generation {
+                            self.scanTask = nil
+                        }
                     }
+                    guard self.scanGeneration == generation else { return }
                     self.error = error
                     logger.error("Port scan failed: \(error.localizedDescription)")
-                    self.scanTask = nil
                 }
             }
         }

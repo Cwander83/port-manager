@@ -85,20 +85,7 @@ public struct PortItem: Sendable, Identifiable {
     }
 }
 
-extension PortItem: Equatable {
-    public static func == (lhs: PortItem, rhs: PortItem) -> Bool {
-        lhs.id == rhs.id
-            && lhs.pid == rhs.pid
-            && lhs.port == rhs.port
-            && lhs.address == rhs.address
-            && lhs.processName == rhs.processName
-            && lhs.kind == rhs.kind
-            && lhs.label == rhs.label
-            && lhs.subtitle == rhs.subtitle
-            && lhs.ramBytes == rhs.ramBytes
-            && lhs.isZombie == rhs.isZombie
-            && lhs.startedAt == rhs.startedAt
-            && lhs.processStartTime == rhs.processStartTime
-            && lhs.localAddress == rhs.localAddress
-    }
-}
+/// Semantics for additive fields (mirrors kill-engine branch usage):
+/// - `processStartTime`: process `pbi_start_tvsec` (macOS `proc_pidinfo`), i.e. when the PID launched.
+/// - `localAddress`: raw lsof `NAME` column as parsed (e.g. `*:8080`, `[::1]:5432`, `127.0.0.1:3000`).
+extension PortItem: Equatable {}

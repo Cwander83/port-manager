@@ -49,8 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         store.$listeners
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] items in
-                self?.updateStatusItem(count: items.count)
+            .map { $0.listenerStats().processCount }
+            .sink { [weak self] count in
+                self?.updateStatusItem(count: count)
             }
             .store(in: &cancellables)
 

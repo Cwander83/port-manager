@@ -1,0 +1,2 @@
+COMMAND     PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+postgres  55555 chriswander    5u  IPv4 0x0000000000000070      0t0  TCP 127.0.0.1:5432 (LISTEN)

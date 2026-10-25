@@ -29,13 +29,21 @@ public struct LsofPortScanner: PortScanner {
             timeout: Self.lsofTimeout
         )
 
+        if result.timedOut {
+            throw LsofError.timedOut
+        }
+
         // lsof exits 1 with no output when there are no matching listeners.
-        if result.status == 1, result.output.isEmpty {
+        // If it exits non-zero but still printed rows, parse the rows (e.g. stale
+        // NFS warning) and only throw if there is no usable output.
+        let trimmedOutput = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.status == 1, trimmedOutput.isEmpty {
             return []
         }
 
-        guard result.status == 0 else {
-            throw LsofError.processFailed(status: result.status)
+        if result.status != 0, trimmedOutput.isEmpty {
+            let detail = result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw LsofError.processFailed(status: result.status, stderr: detail)
         }
 
         return parseLsofOutput(result.output)
@@ -134,8 +142,7 @@ public struct LsofPortScanner: PortScanner {
         metadata: ProcessMetadata
     ) -> PortItem {
         let kind = kind(for: processName, path: metadata.executablePath)
-        let isOrphan = metadata.parentPID == 1
-        let isZombie = isOrphan && (kind == .node || kind == .other)
+        let isZombie = metadata.parentPID == 1 && kind == .node
 
         return PortItem(
             port: port,
@@ -153,9 +160,9 @@ public struct LsofPortScanner: PortScanner {
         )
     }
 
-    /// Known docker process names, including lsof's truncated `com.docke`.
+    /// Known docker process names, including lsof's truncated `com.docke` and `docker-pr`.
     private var dockerProcessNames: Set<String> {
-        ["docker", "com.docker.backend", "com.docke", "docker-proxy"]
+        ["docker", "com.docker.backend", "com.docke", "docker-proxy", "docker-pr"]
     }
 
     private func kind(for processName: String, path: String?) -> ListenerKind {
@@ -174,9 +181,13 @@ public struct LsofPortScanner: PortScanner {
 
         // Path-root fallback: only brew-related processes installed under homebrew
         // qualify as `.brew`. This prevents Postgres.app in /Applications from being
-        // misclassified while still catching homebrew postgres/redis/mysql.
+        // misclassified while still catching homebrew postgres/redis/mysql on both Apple
+        // Silicon and Intel/Rosetta paths.
         let pathLower = path?.lowercased() ?? ""
-        let isUnderHomebrew = pathLower.hasPrefix("/opt/homebrew/") || pathLower.hasPrefix("/usr/local/homebrew/")
+        let isUnderHomebrew = pathLower.contains("/cellar/")
+            || pathLower.contains("/homebrew/")
+            || pathLower.hasPrefix("/usr/local/opt/")
+            || pathLower.hasPrefix("/usr/local/bin/")
         if isUnderHomebrew {
             switch lower {
             case _ where lower.hasPrefix("postgres") || lower.hasPrefix("redis") || lower.hasPrefix("mysql"):
@@ -261,17 +272,24 @@ public struct LsofPortScanner: PortScanner {
 }
 
 private enum LsofError: Error {
-    case processFailed(status: Int32)
+    case processFailed(status: Int32, stderr: String?)
     case outputDecodingFailed
+    case timedOut
 }
 
 extension LsofError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .processFailed(let status):
-            return "lsof exited with status \(status)"
+        case .processFailed(let status, let stderr):
+            var message = "lsof exited with status \(status)"
+            if let stderr = stderr, !stderr.isEmpty {
+                message += ": \(stderr)"
+            }
+            return message
         case .outputDecodingFailed:
             return "Could not decode lsof output"
+        case .timedOut:
+            return "lsof timed out"
         }
     }
 }
