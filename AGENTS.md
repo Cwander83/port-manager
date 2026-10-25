@@ -16,7 +16,7 @@ Every branch that contains code MUST be reviewed by a second agent (accuracy + s
 ```bash
 swift build          # build
 swift test          # tests (XCTest)
-make release        # signed + notarized dmg (see scripts/)
+swift run PortManager   # run (make release lands in Phase 3)
 ```
 
 ## Conventions

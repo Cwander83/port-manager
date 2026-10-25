@@ -30,7 +30,7 @@ Swift 6 · SwiftUI + NSStatusItem/AppKit shell · Swift Package Manager · macOS
 ```bash
 swift build
 swift test
-open $(swift build --show-bin-path)/PortManager.app  # (release target; see Makefile)
+swift run PortManager   # run from CLI until .app bundling lands (Phase 3: Makefile + signed dmg)
 ```
 
 ## License

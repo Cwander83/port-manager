@@ -57,12 +57,11 @@
 - **Layout**:
   ```
   Sources/
-    PortManagerApp/   — entry, menu bar, popover views
-    Core/             — PortScanner, KillEngine, ZombieDetector, ProjectMapper
-    Persistence/      — port memory store, preferences
-    Mocks/            — MockPortScanner (fixture data for UI dev)
+    PortManager/       — @main entry, menu bar, popover views, PortStore
+    Core/               — PortScanner, models, sorting, formatting (mock included until a Mocks target is needed)
   Tests/
-  scripts/            — release build, notarize, cask bump
+    PortManagerTests/
+  scripts/              — release build + notarize (added at Phase 3)
   ```
 - **Toolchain**: SPM, `swift build/test`, Makefile wrappers (matches existing repos)
 - **Formatting & linting**: swift-format + SwiftLint (match portfolio convention)
