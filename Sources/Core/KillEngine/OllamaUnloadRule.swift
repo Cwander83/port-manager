@@ -11,7 +11,7 @@ struct OllamaUnloadRule: KillRule {
         item.kind == .ollama || (item.port == 11434 && item.processName == "ollama")
     }
 
-    func makeAction(_ item: PortItem) throws -> KillAction {
+    func makeAction(_ item: PortItem) async throws -> KillAction {
         let models = try loadedModels()
         let model = try selectModel(for: item, from: models)
 
@@ -40,7 +40,18 @@ struct OllamaUnloadRule: KillRule {
 
     private func selectModel(for item: PortItem, from models: [String]) throws -> String {
         let haystack = "\(item.label) \(item.subtitle)".lowercased()
-        let matches = models.filter { haystack.contains($0.lowercased()) }
+        var matches = models.filter { modelName in
+            matchesModel(modelName, in: haystack)
+        }
+
+        // If a longer model name matches, discard shorter names that are its
+        // prefix (e.g. "llama3" is a prefix of "llama3:70b"). This keeps the
+        // tagged model from being double-counted.
+        matches = matches.filter { candidate in
+            !matches.contains { other in
+                other != candidate && other.lowercased().hasPrefix(candidate.lowercased())
+            }
+        }
 
         if matches.count == 1 {
             return matches[0]
@@ -51,7 +62,19 @@ struct OllamaUnloadRule: KillRule {
         if models.isEmpty {
             throw KillEngineError.validationFailure(reason: .ollamaModelNotLoaded(port: item.port))
         }
-        throw KillEngineError.validationFailure(reason: .ollamaModelNotLoaded(port: item.port))
+        throw KillEngineError.validationFailure(reason: .modelNotResolvable)
+    }
+
+    private func matchesModel(_ modelName: String, in haystack: String) -> Bool {
+        let needle = modelName.lowercased()
+        // Token boundary = whitespace or common punctuation (,;()).
+        // Colon is part of Ollama model names, so it is NOT a boundary.
+        let pattern = "(?:^|[\\s,;()])\\Q\(needle)\\E(?=$|[\\s,;()])"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return false
+        }
+        let range = NSRange(haystack.startIndex..., in: haystack)
+        return regex.firstMatch(in: haystack, options: [], range: range) != nil
     }
 }
 

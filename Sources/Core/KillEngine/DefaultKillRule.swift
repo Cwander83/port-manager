@@ -1,14 +1,9 @@
 import Foundation
 
 struct DefaultKillRule: KillRule {
-    private let validator: ProcessOwnershipValidator
     private let identityProvider: ProcessIdentityProvider
 
-    init(
-        validator: ProcessOwnershipValidator = ProcessOwnerValidator(),
-        identityProvider: ProcessIdentityProvider = ProcessOwnerValidator()
-    ) {
-        self.validator = validator
+    init(identityProvider: ProcessIdentityProvider = ProcessOwnerValidator()) {
         self.identityProvider = identityProvider
     }
 
@@ -16,7 +11,7 @@ struct DefaultKillRule: KillRule {
         true
     }
 
-    func makeAction(_ item: PortItem) throws -> KillAction {
+    func makeAction(_ item: PortItem) async throws -> KillAction {
         guard item.pid > 0 else {
             throw KillEngineError.validationFailure(reason: .invalidPID(pid: item.pid))
         }
@@ -26,6 +21,15 @@ struct DefaultKillRule: KillRule {
         }
         guard identity.uid == getuid() else {
             throw KillEngineError.validationFailure(reason: .foreignProcess(pid: item.pid, ownerUID: identity.uid))
+        }
+
+        // If the scanner provided a process-start snapshot, verify it has not
+        // changed before returning the action. A nil snapshot (e.g. from a mock
+        // scanner) skips this check — documented in tests.
+        if let snapshot = item.processStartTime {
+            guard identity.startTime == snapshot else {
+                throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: item.pid))
+            }
         }
 
         return .killPid(

@@ -22,13 +22,13 @@ struct BrewServiceRule: KillRule {
         item.kind == .brew
     }
 
-    func makeAction(_ item: PortItem) throws -> KillAction {
+    func makeAction(_ item: PortItem) async throws -> KillAction {
         let brewPath = resolveBrewPath()
         guard FileManager.default.fileExists(atPath: brewPath) else {
             throw KillEngineError.brewBinaryMissing
         }
 
-        let serviceName = try resolveServiceName(for: item, brewPath: brewPath)
+        let serviceName = try await resolveServiceName(for: item, brewPath: brewPath)
 
         return .brewStop(
             serviceName: serviceName,
@@ -37,17 +37,23 @@ struct BrewServiceRule: KillRule {
         )
     }
 
-    private func resolveServiceName(for item: PortItem, brewPath: String) throws -> String {
-        let servicesResult = try runner.run(
+    private func resolveServiceName(for item: PortItem, brewPath: String) async throws -> String {
+        let servicesResult = try await runner.run(
             executable: brewPath,
             arguments: ["services", "list"]
         )
+        guard servicesResult.exitCode == 0 else {
+            throw KillEngineError.commandListUnavailable
+        }
         let services = parseBrewServicesList(servicesResult.stdout)
 
-        let launchctlResult = try runner.run(
+        let launchctlResult = try await runner.run(
             executable: launchctlPath,
             arguments: ["list"]
         )
+        guard launchctlResult.exitCode == 0 else {
+            throw KillEngineError.commandListUnavailable
+        }
         let pidMap = parseLaunchctlList(launchctlResult.stdout)
 
         // Exact PID match is the most reliable signal.
@@ -57,13 +63,16 @@ struct BrewServiceRule: KillRule {
 
         // Fall back to prefix-matching the process name against running brew services.
         let prefix = BrewServiceNameMapping.prefix(for: item.processName)
+        guard !prefix.isEmpty else {
+            throw KillEngineError.validationFailure(reason: .unmappedBrewProcess(processName: item.processName))
+        }
         let candidates = services.filter { $0.status == "started" && $0.name.hasPrefix(prefix) }
 
         guard !candidates.isEmpty else {
             throw KillEngineError.validationFailure(reason: .unmappedBrewProcess(processName: item.processName))
         }
         guard candidates.count == 1 else {
-            throw KillEngineError.validationFailure(reason: .unmappedBrewProcess(processName: item.processName))
+            throw KillEngineError.validationFailure(reason: .ambiguousBrewService)
         }
         return candidates[0].name
     }

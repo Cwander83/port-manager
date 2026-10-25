@@ -1,20 +1,15 @@
 import Foundation
 import Darwin
 
-public protocol ProcessOwnershipValidator {
-    func ownerUID(of pid: pid_t) -> uid_t?
-    func isOwnedByCurrentUser(pid: pid_t) -> Bool
-}
-
-public protocol ProcessIdentityProvider {
+public protocol ProcessIdentityProvider: Sendable {
     func identity(of pid: pid_t) -> ProcessIdentity?
 }
 
-public protocol ProcessNameProvider {
+public protocol ProcessNameProvider: Sendable {
     func processName(of pid: pid_t) -> String?
 }
 
-public struct ProcessIdentity: Equatable {
+public struct ProcessIdentity: Equatable, Sendable {
     public let uid: uid_t
     public let startTime: Date
 
@@ -24,18 +19,8 @@ public struct ProcessIdentity: Equatable {
     }
 }
 
-public struct ProcessOwnerValidator: ProcessOwnershipValidator, ProcessIdentityProvider, ProcessNameProvider {
+public struct ProcessOwnerValidator: ProcessIdentityProvider, ProcessNameProvider, Sendable {
     public init() {}
-
-    public func ownerUID(of pid: pid_t) -> uid_t? {
-        guard let info = shortInfo(pid: pid) else { return nil }
-        return info.pbsi_uid
-    }
-
-    public func isOwnedByCurrentUser(pid: pid_t) -> Bool {
-        guard let uid = ownerUID(of: pid) else { return false }
-        return uid == getuid()
-    }
 
     public func identity(of pid: pid_t) -> ProcessIdentity? {
         guard let short = shortInfo(pid: pid) else { return nil }
@@ -65,11 +50,7 @@ public struct ProcessOwnerValidator: ProcessOwnershipValidator, ProcessIdentityP
         let size = Int32(MemoryLayout<proc_bsdshortinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &info, size) == size else { return nil }
         var bytes = [Int8](repeating: 0, count: 16)
-        _ = withUnsafeMutablePointer(to: &info.pbsi_comm) { commPtr in
-            commPtr.withMemoryRebound(to: Int8.self, capacity: 16) { cPtr in
-                memcpy(&bytes, cPtr, 16)
-            }
-        }
+        memcpy(&bytes, &info.pbsi_comm, 16)
         let trimmed = bytes.prefix { $0 != 0 }
         return String(decoding: trimmed.map(UInt8.init), as: UTF8.self)
     }

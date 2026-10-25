@@ -3,16 +3,20 @@ import Foundation
 public enum HTTPTransportError: Error, Equatable {
     case timeout
     case noResponse
-    case invalidRedirect
 }
 
 /// Synchronous HTTP transport used by the Ollama rule and kill execution.
 /// Real implementation bridges `URLSession` into the sync rule/execute APIs.
-public protocol HTTPTransport {
+///
+/// This protocol is not `Sendable` by design: it models a synchronous
+/// data task. The concrete implementations are structs that create a fresh
+/// `URLSession` per call and hold no shared mutable state, so they are safe to
+/// capture across isolation boundaries.
+public protocol HTTPTransport: Sendable {
     func data(for request: URLRequest) throws -> (Data, URLResponse)
 }
 
-public struct RealHTTPTransport: HTTPTransport, @unchecked Sendable {
+public struct RealHTTPTransport: HTTPTransport {
     private let timeout: TimeInterval
 
     public init(timeout: TimeInterval = 5) {
@@ -32,7 +36,8 @@ public struct RealHTTPTransport: HTTPTransport, @unchecked Sendable {
         let box = ResultBox()
         let semaphore = DispatchSemaphore(value: 0)
 
-        let task = session.dataTask(with: request) { data, response, error in
+        var task: URLSessionDataTask?
+        task = session.dataTask(with: request) { data, response, error in
             if let error = error {
                 box.value = .failure(error)
             } else if let data = data, let response = response {
@@ -42,15 +47,17 @@ public struct RealHTTPTransport: HTTPTransport, @unchecked Sendable {
             }
             semaphore.signal()
         }
-        task.resume()
+        task?.resume()
 
         let waitResult = semaphore.wait(timeout: .now() + timeout)
-        session.finishTasksAndInvalidate()
 
         if waitResult == .timedOut {
-            task.cancel()
+            task?.cancel()
+            session.finishTasksAndInvalidate()
             throw HTTPTransportError.timeout
         }
+
+        session.finishTasksAndInvalidate()
 
         if let value = box.value {
             return try value.get()
@@ -59,8 +66,23 @@ public struct RealHTTPTransport: HTTPTransport, @unchecked Sendable {
     }
 }
 
+/// Locked box: the callback writes once and then signals, so the only possible
+/// race is a stale read after a timeout (which we throw away). Marked
+/// `@unchecked Sendable` for that exact single-writer-after-cancel guarantee.
 private final class ResultBox: @unchecked Sendable {
-    var value: Result<(Data, URLResponse), Error>?
+    private let lock = NSLock()
+    private var _value: Result<(Data, URLResponse), Error>?
+
+    var value: Result<(Data, URLResponse), Error>? {
+        get {
+            lock.lock(); defer { lock.unlock() }
+            return _value
+        }
+        set {
+            lock.lock(); defer { lock.unlock() }
+            _value = newValue
+        }
+    }
 }
 
 private final class LocalHostRedirectDelegate: NSObject, URLSessionTaskDelegate {

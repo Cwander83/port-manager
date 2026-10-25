@@ -5,7 +5,6 @@ public enum KillExecutionError: Error {
     case commandFailed(CommandResult)
     case httpFailure
     case signalDeliveryFailed(pid: pid_t, errno: Int32)
-    case processStillAliveAfterSIGTERM(pid: pid_t)
     case timeout
 }
 
@@ -22,6 +21,8 @@ extension KillEngineError: LocalizedError {
             return "Homebrew not found at /opt/homebrew/bin/brew or /usr/local/bin/brew."
         case .ollamaUnreachable:
             return "Ollama API did not respond. Make sure Ollama is running on port 11434."
+        case .commandListUnavailable:
+            return "Could not read the command/service list required to stop this listener."
         }
     }
 }
@@ -33,6 +34,8 @@ extension ValidationFailureReason: LocalizedError {
         switch self {
         case .invalidPID(let pid):
             return "Invalid PID \(pid)."
+        case .cannotSignalSelf(let pid):
+            return "Cannot signal the running application itself (PID \(pid))."
         case .unknownOwner(let pid):
             return "Cannot verify ownership of process \(pid)."
         case .foreignProcess(let pid, let ownerUID):
@@ -49,10 +52,18 @@ extension ValidationFailureReason: LocalizedError {
             return "Process \(pid) no longer belongs to Docker; rule aborted."
         case .unmappedBrewProcess(let processName):
             return "Unknown Homebrew service for process \"\(processName)\"."
+        case .ambiguousBrewService:
+            return "Multiple Homebrew services could match this process; stop the right one manually."
+        case .brewListUnavailable:
+            return "Could not read the Homebrew service list."
         case .ollamaModelNotLoaded(let port):
             return "No Ollama model appears loaded on port \(port)."
         case .ambiguousModel:
             return "Multiple loaded models could match this listener; unload the model manually."
+        case .modelNotResolvable:
+            return "Loaded models do not match this listener; unload the model manually."
+        case .invalidServiceName(let name):
+            return "Refusing unsafe Homebrew service name \"\(name)\"."
         }
     }
 }
@@ -67,8 +78,6 @@ extension KillExecutionError: LocalizedError {
             return "Ollama API request failed."
         case .signalDeliveryFailed(let pid, let errno):
             return "Failed to send signal to PID \(pid): error \(errno)."
-        case .processStillAliveAfterSIGTERM(let pid):
-            return "Process \(pid) ignored SIGTERM; enable escalation to send SIGKILL."
         case .timeout:
             return "Command timed out."
         }

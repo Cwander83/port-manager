@@ -6,8 +6,8 @@ import Foundation
 /// dialog plus the execution payload needed to carry it out.
 public enum KillAction: Sendable, Equatable {
     /// Send SIGTERM directly to a PID via the `kill(2)` syscall.
-    /// `processStartTime` is the start time captured at scan time; it is
-    /// re-verified immediately before `kill(2)` to detect pid reuse.
+    /// `processStartTime` is the snapshot of the process start time that the
+    /// scanner captured. It must be re-verified before signaling.
     case killPid(
         pid: pid_t,
         processStartTime: Date?,
@@ -45,10 +45,12 @@ public enum KillEngineError: Error, Equatable {
     case dockerDaemonUnavailable(message: String)
     case brewBinaryMissing
     case ollamaUnreachable
+    case commandListUnavailable
 }
 
 public enum ValidationFailureReason: Equatable, Sendable {
     case invalidPID(pid: pid_t)
+    case cannotSignalSelf(pid: pid_t)
     case unknownOwner(pid: pid_t)
     case foreignProcess(pid: pid_t, ownerUID: uid_t)
     case processIdentityChanged(pid: pid_t)
@@ -57,12 +59,18 @@ public enum ValidationFailureReason: Equatable, Sendable {
     case ambiguousContainerMatch(port: Int)
     case dockerProcessMismatch(pid: pid_t)
     case unmappedBrewProcess(processName: String)
+    case ambiguousBrewService
+    case brewListUnavailable
     case ollamaModelNotLoaded(port: Int)
     case ambiguousModel
+    case modelNotResolvable
+    case invalidServiceName(String)
 }
 
-/// Determines how to stop a listener and returns a `KillAction`.
-public protocol KillRule {
+/// Determines whether it can stop a listener (sync) and, if so, resolves the
+/// concrete action. The resolution may involve subprocesses or HTTP calls and
+/// must therefore be `async throws`.
+public protocol KillRule: Sendable {
     func canHandle(_ item: PortItem) -> Bool
-    func makeAction(_ item: PortItem) throws -> KillAction
+    func makeAction(_ item: PortItem) async throws -> KillAction
 }

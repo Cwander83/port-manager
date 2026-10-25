@@ -3,17 +3,20 @@ import Foundation
 struct DockerKillRule: KillRule {
     private let runner: CommandRunner
     private let nameProvider: ProcessNameProvider
+    private let identityProvider: ProcessIdentityProvider
     private let primaryPath: String
     private let fallbackPath: String
 
     init(
         runner: CommandRunner,
         nameProvider: ProcessNameProvider = ProcessOwnerValidator(),
+        identityProvider: ProcessIdentityProvider = ProcessOwnerValidator(),
         primaryPath: String = "/opt/homebrew/bin/docker",
         fallbackPath: String = "/usr/local/bin/docker"
     ) {
         self.runner = runner
         self.nameProvider = nameProvider
+        self.identityProvider = identityProvider
         self.primaryPath = primaryPath
         self.fallbackPath = fallbackPath
     }
@@ -22,18 +25,15 @@ struct DockerKillRule: KillRule {
         item.kind == .docker || item.processName.hasPrefix("com.docker")
     }
 
-    func makeAction(_ item: PortItem) throws -> KillAction {
+    func makeAction(_ item: PortItem) async throws -> KillAction {
         let dockerPath = resolveDockerPath()
         guard FileManager.default.fileExists(atPath: dockerPath) else {
             throw KillEngineError.dockerBinaryMissing
         }
 
-        guard let currentName = nameProvider.processName(of: item.pid),
-              currentName.hasPrefix("com.docker") else {
-            throw KillEngineError.validationFailure(reason: .dockerProcessMismatch(pid: item.pid))
-        }
+        try verifyProcessIdentityStillMatchesDockerProxy(item)
 
-        let result = try runner.run(
+        let result = try await runner.run(
             executable: dockerPath,
             arguments: ["ps", "--format", "{{.ID}}\t{{.Ports}}"]
         )
@@ -42,7 +42,7 @@ struct DockerKillRule: KillRule {
             throw KillEngineError.dockerDaemonUnavailable(message: trimmed)
         }
 
-        let matches = try matchingContainers(for: item, in: result.stdout)
+        let matches = matchingContainers(for: item, in: result.stdout)
         guard matches.count == 1 else {
             if matches.isEmpty {
                 throw KillEngineError.validationFailure(reason: .containerLookupFailed(port: item.port))
@@ -69,7 +69,20 @@ struct DockerKillRule: KillRule {
         return fallbackPath
     }
 
-    private func matchingContainers(for item: PortItem, in output: String) throws -> [String] {
+    private func verifyProcessIdentityStillMatchesDockerProxy(_ item: PortItem) throws {
+        guard let currentName = nameProvider.processName(of: item.pid),
+              currentName.hasPrefix("com.docker") else {
+            throw KillEngineError.validationFailure(reason: .dockerProcessMismatch(pid: item.pid))
+        }
+        if let snapshot = item.processStartTime {
+            guard let identity = identityProvider.identity(of: item.pid),
+                  identity.startTime == snapshot else {
+                throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: item.pid))
+            }
+        }
+    }
+
+    private func matchingContainers(for item: PortItem, in output: String) -> [String] {
         var ids: [String] = []
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
@@ -117,13 +130,34 @@ private extension String {
         let host = String(localPart[..<lastColonIndex])
         let portRange = String(localPart[localPart.index(after: lastColonIndex)...])
 
-        if let localAddress = localAddress {
-            let normalizedHost = host.isEmpty ? "::" : host
-            guard normalizedHost == localAddress else { return false }
+        let normalizedDockerHost = normalizeDockerHost(host)
+        let normalizedLocalAddress = localAddress.map(normalizeDockerHost) ?? .wildcard
+
+        // Either side wildcard = match.
+        guard normalizedDockerHost == .wildcard ||
+              normalizedLocalAddress == .wildcard ||
+              normalizedDockerHost == normalizedLocalAddress else {
+            return false
         }
 
         return portRange.matchesPortRange(port: port)
     }
+}
+
+private enum NormalizedHost: Equatable {
+    case wildcard
+    case address(String)
+}
+
+private func normalizeDockerHost(_ raw: String) -> NormalizedHost {
+    let stripped = raw
+        .trimmingCharacters(in: .whitespaces)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    if stripped.isEmpty || stripped == "*" || stripped == "0.0.0.0" ||
+       stripped == "::" || stripped == "::0" || stripped == ":::" {
+        return .wildcard
+    }
+    return .address(stripped)
 }
 
 private extension String {

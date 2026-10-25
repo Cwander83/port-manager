@@ -20,18 +20,35 @@ public enum CommandRunnerError: Error, Equatable {
 
 /// Spawns an executable using an absolute path and an argv array.
 /// Never invokes a shell and never performs PATH lookup.
+///
+/// Callers can supply a per-call `timeout`. The default is 10 seconds.
 public protocol CommandRunner: Sendable {
-    func run(executable: String, arguments: [String]) throws -> CommandResult
+    func run(executable: String, arguments: [String], timeout: TimeInterval) async throws -> CommandResult
+}
+
+extension CommandRunner {
+    public func run(executable: String, arguments: [String]) async throws -> CommandResult {
+        try await run(executable: executable, arguments: arguments, timeout: 10)
+    }
 }
 
 public struct RealCommandRunner: CommandRunner {
-    public let timeout: TimeInterval
+    public init() {}
 
-    public init(timeout: TimeInterval = 10) {
-        self.timeout = timeout
+    public func run(executable: String, arguments: [String], timeout: TimeInterval) async throws -> CommandResult {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try self.runSync(executable: executable, arguments: arguments, timeout: timeout)
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
-    public func run(executable: String, arguments: [String]) throws -> CommandResult {
+    private func runSync(executable: String, arguments: [String], timeout: TimeInterval) throws -> CommandResult {
         guard executable.hasPrefix("/") else {
             throw CommandRunnerError.relativePath(executable)
         }
@@ -62,7 +79,9 @@ public struct RealCommandRunner: CommandRunner {
         }
 
         let semaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
+        let statusBox = TerminationStatusBox()
+        process.terminationHandler = { proc in
+            statusBox.set(proc.terminationStatus)
             semaphore.signal()
         }
 
@@ -74,8 +93,14 @@ public struct RealCommandRunner: CommandRunner {
         errorPipe.fileHandleForReading.readabilityHandler = nil
 
         if waitResult == .timedOut {
+            // First polite SIGTERM.
             process.terminate()
-            process.waitUntilExit()
+            let killWait = semaphore.wait(timeout: .now() + 3)
+            if killWait == .timedOut || !statusBox.didTerminate {
+                // Escalate to SIGKILL if the process ignored SIGTERM.
+                kill(process.processIdentifier, SIGKILL)
+                _ = semaphore.wait(timeout: .now() + 1)
+            }
             throw CommandRunnerError.timeout
         }
 
@@ -86,13 +111,15 @@ public struct RealCommandRunner: CommandRunner {
         stderr.append(errorPipe.fileHandleForReading.readDataToEndOfFile())
 
         return CommandResult(
-            exitCode: process.terminationStatus,
+            exitCode: statusBox.exitCode,
             stdout: String(data: stdout.data, encoding: .utf8) ?? "",
             stderr: String(data: stderr.data, encoding: .utf8) ?? ""
         )
     }
 }
 
+/// Thread-safe accumulator for pipe output. The callbacks are the only
+/// writers; `run()` reads after the process terminates.
 private final class PipeAccumulator: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var data = Data()
@@ -100,6 +127,26 @@ private final class PipeAccumulator: @unchecked Sendable {
     func append(_ chunk: Data) {
         lock.lock()
         data.append(chunk)
+        lock.unlock()
+    }
+}
+
+/// Thread-safe box for the process termination status written from the
+/// termination handler and read after the process exits.
+private final class TerminationStatusBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _exitCode: Int32 = 0
+    private(set) var didTerminate: Bool = false
+
+    var exitCode: Int32 {
+        lock.lock(); defer { lock.unlock() }
+        return _exitCode
+    }
+
+    func set(_ code: Int32) {
+        lock.lock()
+        _exitCode = code
+        didTerminate = true
         lock.unlock()
     }
 }
@@ -112,7 +159,7 @@ public final class MockCommandRunner: CommandRunner, @unchecked Sendable {
 
     public init() {}
 
-    public func run(executable: String, arguments: [String]) throws -> CommandResult {
+    public func run(executable: String, arguments: [String], timeout: TimeInterval) async throws -> CommandResult {
         invocations.append((executable, arguments))
         if let error = nextError {
             nextError = nil

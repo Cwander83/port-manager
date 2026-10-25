@@ -2,9 +2,8 @@ import Foundation
 import Darwin
 
 /// Rule-based dispatcher that chooses the right way to stop a listener.
-public struct KillEngine {
+public struct KillEngine: Sendable {
     public let rules: [KillRule]
-    private let runner: CommandRunner
     private let httpTransport: HTTPTransport
     private let identityProvider: ProcessIdentityProvider
     private let nameProvider: ProcessNameProvider
@@ -16,35 +15,34 @@ public struct KillEngine {
         nameProvider: ProcessNameProvider = ProcessOwnerValidator(),
         rules: [KillRule]? = nil
     ) {
-        self.runner = runner
         self.httpTransport = httpTransport
         self.identityProvider = identityProvider
         self.nameProvider = nameProvider
         self.rules = rules ?? [
-            DockerKillRule(runner: runner, nameProvider: nameProvider),
+            DockerKillRule(runner: runner, nameProvider: nameProvider, identityProvider: identityProvider),
             OllamaUnloadRule(transport: httpTransport),
             BrewServiceRule(runner: runner),
-            DefaultKillRule(
-                validator: identityProvider as? ProcessOwnershipValidator ?? ProcessOwnerValidator(),
-                identityProvider: identityProvider
-            )
+            DefaultKillRule(identityProvider: identityProvider)
         ]
     }
 
     /// Returns the first matching rule's action.
-    public func action(for item: PortItem) throws -> KillAction {
+    ///
+    /// This method is `async throws` because resolving an action may require
+    /// subprocesses (`docker ps`, `brew services list`) or HTTP calls
+    /// (`/api/ps`). Do not call it from the main thread; await it from a
+    /// background task.
+    public func action(for item: PortItem) async throws -> KillAction {
         for rule in rules {
             guard rule.canHandle(item) else { continue }
-            return try rule.makeAction(item)
+            return try await rule.makeAction(item)
         }
-        return try DefaultKillRule(identityProvider: identityProvider).makeAction(item)
+        return try await DefaultKillRule(identityProvider: identityProvider).makeAction(item)
     }
 
     /// Executes a validated action.
     ///
-    /// Must not be called from the main thread; the method is `async` so callers
-    /// can await it off the main actor. `escalate` opts in to SIGKILL after a
-    /// short SIGTERM grace period.
+    /// `escalate` opts in to SIGKILL after a short SIGTERM grace period.
     public func execute(
         _ action: KillAction,
         using commandRunner: CommandRunner,
@@ -60,8 +58,8 @@ public struct KillEngine {
         case .brewStop(let serviceName, _, let executable):
             try await executeBrewStop(serviceName: serviceName, executable: executable, using: commandRunner)
 
-        case .ollamaUnload(let model, _, let url, let method, let body):
-            try await executeOllamaUnload(model: model, url: url, method: method, body: body)
+        case .ollamaUnload(let model, _, let url, let method, _):
+            try await executeOllamaUnload(model: model, url: url, method: method)
         }
     }
 
@@ -73,7 +71,11 @@ public struct KillEngine {
         guard validateContainerID(containerID) else {
             throw KillEngineError.validationFailure(reason: .invalidContainerID(containerID))
         }
-        let result = try commandRunner.run(executable: executable, arguments: ["stop", containerID])
+        let result = try await commandRunner.run(
+            executable: executable,
+            arguments: ["stop", containerID],
+            timeout: 30
+        )
         guard result.exitCode == 0 else {
             throw KillExecutionError.commandFailed(result)
         }
@@ -84,7 +86,14 @@ public struct KillEngine {
         executable: String,
         using commandRunner: CommandRunner
     ) async throws {
-        let result = try commandRunner.run(executable: executable, arguments: ["services", "stop", serviceName])
+        guard validateServiceName(serviceName) else {
+            throw KillEngineError.validationFailure(reason: .invalidServiceName(serviceName))
+        }
+        let result = try await commandRunner.run(
+            executable: executable,
+            arguments: ["services", "stop", serviceName],
+            timeout: 15
+        )
         guard result.exitCode == 0 else {
             throw KillExecutionError.commandFailed(result)
         }
@@ -93,9 +102,16 @@ public struct KillEngine {
     private func executeOllamaUnload(
         model: String,
         url: URL,
-        method: String,
-        body: Data
+        method: String
     ) async throws {
+        guard url.scheme == "http",
+              let host = url.host, host == "127.0.0.1",
+              let port = url.port, port == 11434,
+              url.path == "/api/generate" else {
+            throw KillEngineError.validationFailure(reason: .invalidServiceName("ollama URL"))
+        }
+
+        let body = try JSONSerialization.data(withJSONObject: ["model": model, "keep_alive": 0])
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
@@ -118,7 +134,7 @@ public struct KillEngine {
             throw KillEngineError.validationFailure(reason: .invalidPID(pid: pid))
         }
         guard pid != getpid() else {
-            throw KillEngineError.validationFailure(reason: .invalidPID(pid: pid))
+            throw KillEngineError.validationFailure(reason: .cannotSignalSelf(pid: pid))
         }
 
         guard let identity = identityProvider.identity(of: pid) else {
@@ -138,9 +154,13 @@ public struct KillEngine {
 
         if escalate {
             try await Task.sleep(nanoseconds: 250_000_000) // 0.25s grace
-            if isProcessAlive(pid: pid) {
-                try deliverSignal(pid: pid, signal: SIGKILL)
+            guard isProcessAlive(pid: pid) else { return }
+            guard let refreshedIdentity = identityProvider.identity(of: pid),
+                  refreshedIdentity.startTime == (capturedStartTime ?? identity.startTime),
+                  refreshedIdentity.uid == identity.uid else {
+                throw KillEngineError.validationFailure(reason: .processIdentityChanged(pid: pid))
             }
+            try deliverSignal(pid: pid, signal: SIGKILL)
         }
     }
 
@@ -162,5 +182,13 @@ public struct KillEngine {
         }
         let range = NSRange(id.startIndex..., in: id)
         return regex.firstMatch(in: id, options: [], range: range) != nil
+    }
+
+    private func validateServiceName(_ name: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: "^[A-Za-z0-9@._+-]+$") else {
+            return false
+        }
+        let range = NSRange(name.startIndex..., in: name)
+        return !name.isEmpty && !name.hasPrefix("-") && regex.firstMatch(in: name, options: [], range: range) != nil
     }
 }
