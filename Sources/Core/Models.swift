@@ -19,9 +19,10 @@ public enum ListenerKind: String, CaseIterable, Sendable {
 }
 
 public struct PortItem: Sendable, Identifiable {
-    public var id: String { "\(pid):\(port)" }
+    public var id: String { "\(pid):\(port):\(address)" }
 
     public let port: Int
+    public let address: String
     public let pid: pid_t
     public let processName: String
     public let kind: ListenerKind
@@ -31,8 +32,13 @@ public struct PortItem: Sendable, Identifiable {
     public let isZombie: Bool
     public let startedAt: Date?
 
+    // Additive fields from parallel kill-engine branch; kept with defaults for clean merge.
+    public let processStartTime: Date?
+    public let localAddress: String?
+
     public init(
         port: Int,
+        address: String = "0.0.0.0",
         pid: pid_t,
         processName: String,
         kind: ListenerKind,
@@ -40,9 +46,12 @@ public struct PortItem: Sendable, Identifiable {
         subtitle: String,
         ramBytes: Int64?,
         isZombie: Bool,
-        startedAt: Date? = nil
+        startedAt: Date? = nil,
+        processStartTime: Date? = nil,
+        localAddress: String? = nil
     ) {
         self.port = port
+        self.address = address
         self.pid = pid
         self.processName = processName
         self.kind = kind
@@ -51,6 +60,8 @@ public struct PortItem: Sendable, Identifiable {
         self.ramBytes = ramBytes
         self.isZombie = isZombie
         self.startedAt = startedAt
+        self.processStartTime = processStartTime
+        self.localAddress = localAddress
     }
 
     public func ageLabel(now: Date = Date()) -> String {
@@ -73,3 +84,8 @@ public struct PortItem: Sendable, Identifiable {
         }
     }
 }
+
+/// Semantics for additive fields (mirrors kill-engine branch usage):
+/// - `processStartTime`: process `pbi_start_tvsec` (macOS `proc_pidinfo`), i.e. when the PID launched.
+/// - `localAddress`: raw lsof `NAME` column host part only (e.g. `*`, `[::1]`, `127.0.0.1`).
+extension PortItem: Equatable {}

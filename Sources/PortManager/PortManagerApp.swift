@@ -18,7 +18,7 @@ struct PortManagerApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private let store = PortStore()
+    private let store = PortStore(scanner: LsofPortScanner())
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -49,12 +49,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         store.$listeners
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] items in
-                self?.updateStatusItem(count: items.count)
+            .map { $0.listenerStats().processCount }
+            .sink { [weak self] count in
+                self?.updateStatusItem(count: count)
             }
             .store(in: &cancellables)
 
         store.startScanning()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        store.stopScanning()
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {

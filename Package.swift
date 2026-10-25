@@ -22,7 +22,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PortManagerTests",
-            dependencies: ["Core"],
+            dependencies: ["Core", "PortManager"],
             path: "Tests/PortManagerTests"
         )
     ]

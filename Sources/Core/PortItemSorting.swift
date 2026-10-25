@@ -6,7 +6,10 @@ public extension [PortItem] {
             if $0.isZombie != $1.isZombie {
                 return !$0.isZombie
             }
-            return $0.port < $1.port
+            if $0.port != $1.port {
+                return $0.port < $1.port
+            }
+            return $0.id < $1.id
         }
     }
 }
