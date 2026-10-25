@@ -6,20 +6,17 @@ public struct KillEngine: Sendable {
     public let rules: [KillRule]
     private let httpTransport: HTTPTransport
     private let identityProvider: ProcessIdentityProvider
-    private let nameProvider: ProcessNameProvider
 
     public init(
         runner: CommandRunner = RealCommandRunner(),
         httpTransport: HTTPTransport = RealHTTPTransport(),
         identityProvider: ProcessIdentityProvider = ProcessOwnerValidator(),
-        nameProvider: ProcessNameProvider = ProcessOwnerValidator(),
         rules: [KillRule]? = nil
     ) {
         self.httpTransport = httpTransport
         self.identityProvider = identityProvider
-        self.nameProvider = nameProvider
         self.rules = rules ?? [
-            DockerKillRule(runner: runner, nameProvider: nameProvider, identityProvider: identityProvider),
+            DockerKillRule(runner: runner, nameProvider: ProcessOwnerValidator(), identityProvider: identityProvider),
             OllamaUnloadRule(transport: httpTransport),
             BrewServiceRule(runner: runner),
             DefaultKillRule(identityProvider: identityProvider)
@@ -130,10 +127,12 @@ public struct KillEngine: Sendable {
     /// Sends SIGTERM via `kill(2)`. If `escalate` is true and the process is
     /// still alive after a short grace period, sends SIGKILL.
     ///
-    /// Pid-reuse mitigation: the process start time captured at scan time is
-    /// re-read immediately before signaling. A mismatch aborts with a typed
-    /// error. A residual race remains between the re-read and the signal, but
-    /// this reduces the window from scan-to-kill to microseconds.
+    /// Pid-reuse mitigation: the process start time captured when the action
+    /// was built is re-read immediately before signaling and compared at second
+    /// granularity. A mismatch aborts with a typed error. A residual race
+    /// remains between the re-read and the signal, and two distinct processes
+    /// that start within the same second could be indistinguishable. macOS PID
+    /// allocation makes same-second reuse effectively unreachable in practice.
     private func killProcess(pid: pid_t, capturedStartTime: Date?, escalate: Bool) async throws {
         guard pid > 0 else {
             throw KillEngineError.validationFailure(reason: .invalidPID(pid: pid))

@@ -112,6 +112,9 @@ public struct RealCommandRunner: CommandRunner {
                 kill(process.processIdentifier, SIGKILL)
                 _ = semaphore.wait(timeout: .now() + 1)
             }
+            // Ensure the child is reaped before we throw; a zombie is impossible
+            // to kill again and leaks resources.
+            process.waitUntilExit()
             throw CommandRunnerError.timeout
         }
 

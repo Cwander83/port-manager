@@ -337,6 +337,35 @@ final class PortManagerTests: XCTestCase {
         XCTAssertEqual(items.first?.isZombie, true)
     }
 
+    func testHomebrewMongodClassifiesAsBrew() throws {
+        let date = Date(timeIntervalSince1970: 8_000_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = """
+COMMAND PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+mongod 13579 user    5u  IPv4 0x0      0t0  TCP 127.0.0.1:27017 (LISTEN)
+"""
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .brew)
+        XCTAssertEqual(items.first?.label, "mongodb-community")
+        XCTAssertEqual(items.first?.subtitle, "brew service")
+    }
+
+    func testMacPortsNginxStaysOtherAndKillable() throws {
+        let date = Date(timeIntervalSince1970: 8_100_000)
+        let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
+        let output = """
+COMMAND PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+nginx 24680 user    5u  IPv4 0x0      0t0  TCP 127.0.0.1:8080 (LISTEN)
+"""
+        let items = scanner.parse(output).sortedForDisplay()
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.kind, .other)
+        XCTAssertEqual(items.first?.subtitle, "nginx")
+    }
+
     func testIntelHomebrewPostgresqlDetectedAsBrew() throws {
         let date = Date(timeIntervalSince1970: 6_200_000)
         let scanner = LsofPortScanner(provider: StubProcessInfoProvider(referenceDate: date))
@@ -573,6 +602,20 @@ private struct StubProcessInfoProvider: ProcessInfoProvider {
             return ProcessMetadata(
                 executablePath: "/usr/local/opt/postgresql@16/bin/postgres",
                 ramBytes: 32 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
+        case 13579:
+            return ProcessMetadata(
+                executablePath: "/opt/homebrew/opt/mongodb-community/bin/mongod",
+                ramBytes: 64 * 1024 * 1024,
+                parentPID: 1,
+                startedAt: referenceDate
+            )
+        case 24680:
+            return ProcessMetadata(
+                executablePath: "/opt/local/bin/nginx",
+                ramBytes: 8 * 1024 * 1024,
                 parentPID: 1,
                 startedAt: referenceDate
             )

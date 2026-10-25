@@ -453,6 +453,33 @@ final class KillEngineTests: XCTestCase {
         )
     }
 
+    func testDockerRuleAcceptsDockerProxyProcess() async throws {
+        let dockerPath = makeTempFile(name: "docker")
+        let runner = MockCommandRunner()
+        runner.results = [
+            CommandResult(
+                exitCode: 0,
+                stdout: "a1b2c3d4e5f6\t0.0.0.0:8080->8080/tcp",
+                stderr: ""
+            )
+        ]
+        let rule = DockerKillRule(
+            runner: runner,
+            nameProvider: MockProcessValidator(identity: ownIdentity, processName: "docker-proxy"),
+            identityProvider: MockProcessValidator(identity: ownIdentity),
+            primaryPath: dockerPath
+        )
+        let item = makeItem(port: 8080, pid: 34567, processName: "docker-proxy", kind: .docker, localAddress: "0.0.0.0")
+
+        let action = try await rule.makeAction(item)
+
+        if case .dockerStop(let containerID, _, _) = action {
+            XCTAssertEqual(containerID, "a1b2c3d4e5f6")
+        } else {
+            XCTFail("expected docker stop, got \(action)")
+        }
+    }
+
     func testDockerRuleRejectsForeignOwnedProxy() async {
         let identity = ProcessIdentity(uid: 0, startTime: Date(timeIntervalSince1970: 1))
         let dockerPath = makeTempFile(name: "docker")
@@ -670,33 +697,6 @@ final class KillEngineTests: XCTestCase {
                 XCTAssertEqual(error as? KillEngineError, .validationFailure(reason: .ambiguousBrewService))
             }
         )
-    }
-
-    func testBrewRuleHandlesOtherKindWithMappedProcessName() async throws {
-        let brewPath = makeTempFile(name: "brew")
-        let runner = MockCommandRunner()
-        runner.results = [
-            CommandResult(
-                exitCode: 0,
-                stdout: "Name          Status\npostgresql@16 started\n",
-                stderr: ""
-            ),
-            CommandResult(
-                exitCode: 0,
-                stdout: "PID\tStatus\tLabel\n",
-                stderr: ""
-            )
-        ]
-        let rule = BrewServiceRule(runner: runner, primaryPath: brewPath)
-        let item = makeItem(port: 5432, pid: 23456, processName: "postgres", kind: .other)
-
-        let action = try await rule.makeAction(item)
-
-        if case .brewStop(let serviceName, _, _) = action {
-            XCTAssertEqual(serviceName, "postgresql@16")
-        } else {
-            XCTFail("expected brew stop, got \(action)")
-        }
     }
 
     func testBrewRuleResolvesTruncatedRedisServerName() async throws {
@@ -1067,6 +1067,25 @@ final class KillEngineTests: XCTestCase {
             XCTAssertEqual(commandDescription, "unload llama3:70b (keep_alive=0)")
         } else {
             XCTFail("expected ollama unload, got \(action)")
+        }
+    }
+
+    func testEngineFallsBackToDefaultKillForBrewNamedOtherItem() async throws {
+        let engine = KillEngine(
+            runner: MockCommandRunner(),
+            rules: [
+                BrewServiceRule(runner: MockCommandRunner()),
+                DefaultKillRule(identityProvider: MockProcessValidator(identity: ownIdentity))
+            ]
+        )
+        let item = makeItem(port: 5432, pid: 23456, processName: "postgres", kind: .other)
+
+        let action = try await engine.action(for: item)
+
+        if case .killPid(let pid, _, _) = action {
+            XCTAssertEqual(pid, 23456)
+        } else {
+            XCTFail("expected killPid, got \(action)")
         }
     }
 

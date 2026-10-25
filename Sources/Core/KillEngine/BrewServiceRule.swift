@@ -19,7 +19,7 @@ struct BrewServiceRule: KillRule {
     }
 
     func canHandle(_ item: PortItem) -> Bool {
-        item.kind == .brew || BrewServiceNameMapping.isKnown(item.processName)
+        item.kind == .brew
     }
 
     func makeAction(_ item: PortItem) async throws -> KillAction {
@@ -100,8 +100,8 @@ private func parseBrewServicesList(_ output: String) -> [BrewService] {
         let nsLine = String(line)
         let range = NSRange(nsLine.startIndex..., in: nsLine)
         guard let match = regex.firstMatch(in: nsLine, options: [], range: range) else { continue }
-        let nameRange = Range(match.range(at: 1), in: nsLine)!
-        let statusRange = Range(match.range(at: 2), in: nsLine)!
+        guard let nameRange = Range(match.range(at: 1), in: nsLine),
+              let statusRange = Range(match.range(at: 2), in: nsLine) else { continue }
         services.append(BrewService(
             name: String(nsLine[nameRange]),
             status: String(nsLine[statusRange])
@@ -143,6 +143,7 @@ public enum BrewServiceNameMapping {
     ]
 
     public static func prefix(for processName: String) -> String {
+        guard !processName.isEmpty else { return processName }
         if let exact = table[processName] {
             return exact
         }
@@ -153,6 +154,7 @@ public enum BrewServiceNameMapping {
     }
 
     public static func isKnown(_ processName: String) -> Bool {
-        table[processName] != nil || table.keys.contains(where: { $0.hasPrefix(processName) })
+        guard !processName.isEmpty else { return false }
+        return table[processName] != nil || table.keys.contains(where: { $0.hasPrefix(processName) })
     }
 }

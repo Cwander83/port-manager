@@ -190,7 +190,8 @@ public struct LsofPortScanner: PortScanner {
             || pathLower.hasPrefix("/usr/local/bin/")
         if isUnderHomebrew {
             switch lower {
-            case _ where lower.hasPrefix("postgres") || lower.hasPrefix("redis") || lower.hasPrefix("mysql"):
+            case _ where lower.hasPrefix("postgres") || lower.hasPrefix("redis") || lower.hasPrefix("mysql") ||
+                          lower == "mongod" || lower == "nginx" || lower == "httpd":
                 return .brew
             default:
                 break
@@ -247,6 +248,7 @@ public struct LsofPortScanner: PortScanner {
             "node", "vite", "esbuild",
             "ollama",
             "postgres", "redis-server", "mysqld", "mysql",
+            "mongod", "nginx", "httpd",
             "python", "python3",
             "com.docker.backend", "docker", "docker-proxy"
         ]

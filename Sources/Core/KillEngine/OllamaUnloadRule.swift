@@ -15,7 +15,7 @@ struct OllamaUnloadRule: KillRule {
         let models = try loadedModels()
         let model = try selectModel(for: item, from: models)
 
-        let url = URL(string: "http://127.0.0.1:11434/api/generate")!
+        let url = try ollamaURL(path: "/api/generate")
 
         return .ollamaUnload(
             model: model,
@@ -26,7 +26,7 @@ struct OllamaUnloadRule: KillRule {
     }
 
     private func loadedModels() throws -> [String] {
-        let url = URL(string: "http://127.0.0.1:11434/api/ps")!
+        let url = try ollamaURL(path: "/api/ps")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         let (data, response) = try transport.data(for: request)
@@ -71,13 +71,17 @@ struct OllamaUnloadRule: KillRule {
         let needle = modelName.lowercased()
         // Token boundary = whitespace or common punctuation (,;()).
         // Colon is part of Ollama model names, so it is NOT a boundary.
-        let pattern = "(?:^|[\\s,;()])\\Q\(needle)\\E(?=$|[\\s,;()])"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return false
-        }
-        let range = NSRange(haystack.startIndex..., in: haystack)
-        return regex.firstMatch(in: haystack, options: [], range: range) != nil
+        let separators = CharacterSet.whitespaces.union(CharacterSet(charactersIn: ",;()"))
+        let tokens = haystack.lowercased().components(separatedBy: separators)
+        return tokens.contains(needle)
     }
+}
+
+private func ollamaURL(path: String) throws -> URL {
+    guard let url = URL(string: "http://127.0.0.1:11434\(path)") else {
+        throw KillEngineError.ollamaUnreachable
+    }
+    return url
 }
 
 private func parseModels(from data: Data) -> [String] {

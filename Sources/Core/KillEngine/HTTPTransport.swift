@@ -16,8 +16,13 @@ extension HTTPTransportError: LocalizedError {
     }
 }
 
-/// Synchronous HTTP transport used by the Ollama rule and kill execution.
-/// Real implementation bridges `URLSession` into the sync rule/execute APIs.
+/// Synchronous HTTP transport used by the async Ollama rule and kill execution.
+/// Real implementation bridges `URLSession` into the sync protocol surface.
+///
+/// Callers await at the rule/execute boundary; the sync `data(for:)` call blocks
+/// a cooperative thread for up to the configured timeout (default 5s). Full
+/// cancellation is not implemented — a timed-out request is cancelled, but the
+/// blocked thread is not pre-empted.
 ///
 /// The protocol is `Sendable`; concrete implementations are structs that create
 /// a fresh `URLSession` per call and hold no shared mutable state, so they are

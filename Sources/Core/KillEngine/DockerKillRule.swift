@@ -71,8 +71,9 @@ struct DockerKillRule: KillRule {
     }
 
     private func verifyProcessIdentityStillMatchesDockerProxy(_ item: PortItem) throws {
+        let dockerProxyNames: Set<String> = ["docker-proxy", "docker-pr"]
         guard let currentName = nameProvider.processName(of: item.pid),
-              currentName.hasPrefix("com.docker") else {
+              currentName.hasPrefix("com.docker") || dockerProxyNames.contains(currentName) else {
             throw KillEngineError.validationFailure(reason: .dockerProcessMismatch(pid: item.pid))
         }
         guard let identity = identityProvider.identity(of: item.pid) else {
