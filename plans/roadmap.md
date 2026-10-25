@@ -64,5 +64,5 @@ Candidates in priority order (demand-gated):
 ## Open questions (resolve at Phase 0)
 
 - [ ] Final name (PortMate? Orphan? Dockhand? — check Homebrew availability)
-- [ ] Ollama unload API path for current local Ollama version (verify in ollama-bar/gravity-bar code)
+- [x] Ollama unload API path — **resolved Oct 2026**: `POST /api/generate` with `{"model": <name>, "keep_alive": 0}` (no `/api/unload` endpoint exists; verified in review, KillEngineTests pin method/path/body)
 - [ ] Ignore-list defaults — which system listeners to hide (mDNSResponder, etc.)

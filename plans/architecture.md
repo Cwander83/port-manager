@@ -107,7 +107,7 @@
 - **Native Swift over Tauri/web**: true menu bar feel, ~10MB RAM (the product itself monitors RAM — footprint is credibility), and full reuse of existing gravity-bar/ollama-bar patterns. Cost: no web code reuse, macOS only.
 - **lsof subprocess over private APIs**: output format stable for decades, no entitlement drama, easy fixture-testing. Cost: parse fragility mitigated with golden-fixture tests.
 - **Polling over FSEvents/kqueue monitoring**: 2s poll is invisible UX-wise, far simpler. Cost: negligible CPU.
-- **Docker via `docker stop` over raw kill**: correct daemon state. Cost: requires Docker CLI on PATH (graceful fallback to blunt kill with warning).
+- **Docker via `docker stop` over raw kill**: correct daemon state. Cost: requires Docker CLI (absolute path, /opt/homebrew or /usr/local). **No implicit fallback** (decision Oct 2026, per review): if docker binary missing, daemon down, or container unresolvable → typed error with actionable message. SIGTERM on `com.docker.backend` kills ALL containers — blast radius too big; SIGTERM on postgres risks uncommitted writes. Users stop containers via Docker Desktop when our engine can't.
 - **Menu bar popover over desktop widget / floating HUD**: evaluated Oct 2026. True WidgetKit widgets can't kill processes (sandboxed extension — host app required) and have no room for lists; floating HUD fights desktop space and window layering. Menu bar = standard pattern, one surface, ships fastest. Detachable HUD panel + glance widget remain v2 candidates (see roadmap).
 - **v1 scope excludes notifications/groups**: ship narrow, validate, iterate.
 
